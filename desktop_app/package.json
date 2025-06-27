@@ -1,0 +1,70 @@
+{
+  "name": "fpv-drone-configurator",
+  "version": "2.0.0",
+  "description": "FPV Drone Flight Controller Configurator - Phase 1 & 2 Enhanced Edition",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "concurrently \"npm run dev-react\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev-react": "vite",
+    "build": "vite build",
+    "build-electron": "npm run build && electron-builder",
+    "dist": "npm run build && electron-builder --publish=never",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "drone",
+    "flight-controller",
+    "fpv",
+    "teensy",
+    "pid-tuning",
+    "dual-imu",
+    "dynamic-filtering"
+  ],
+  "author": "FPV Drone Project",
+  "license": "MIT",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.8.0",
+    "chart.js": "^4.2.1",
+    "react-chartjs-2": "^5.2.0",
+    "serialport": "^10.5.0",
+    "electron-store": "^8.1.0",
+    "lodash": "^4.17.21",
+    "date-fns": "^2.29.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^3.1.0",
+    "autoprefixer": "^10.4.13",
+    "concurrently": "^7.6.0",
+    "electron": "^22.0.0",
+    "electron-builder": "^23.6.0",
+    "postcss": "^8.4.21",
+    "tailwindcss": "^3.2.4",
+    "vite": "^4.1.0",
+    "wait-on": "^7.0.1"
+  },
+  "build": {
+    "appId": "com.fpvdrone.configurator",
+    "productName": "FPV Drone Configurator",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "build/**/*",
+      "main.js",
+      "preload.js",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
