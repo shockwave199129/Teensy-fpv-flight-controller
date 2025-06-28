@@ -154,38 +154,67 @@ void FlightModes::check_mode_switch(RcData& rc_data, SensorData& sensor_data) {
     new_mode = FLIGHT_MODE_HEADLESS;
   }
   
-  // GPS REQUIREMENT CHECKS - Prevent switching to GPS modes without GPS
-  bool gps_available = (sensor_data.gps.healthy && sensor_data.gps.fix && sensor_data.gps.satellites >= 6);
+  // GPS REQUIREMENT CHECKS - Enhanced to include synthetic GPS
+  bool dedicated_gps_available = (sensor_data.gps.healthy && sensor_data.gps.fix && sensor_data.gps.satellites >= 6);
+  SyntheticSensorData synthetic = sensor_redundancy.get_synthetic_data();
+  bool synthetic_gps_available = (synthetic.synthetic_gps_valid && synthetic.gps_confidence > 0.3);
+  bool gps_functionality_available = dedicated_gps_available || synthetic_gps_available;
   
-  // Check if new mode requires GPS
+  // Check if new mode requires GPS functionality
   if (new_mode == FLIGHT_MODE_POSITION_HOLD || new_mode == FLIGHT_MODE_RETURN_TO_HOME) {
-    if (!gps_available) {
+    if (!gps_functionality_available) {
       // Block GPS-dependent mode switch
       Serial.print("Mode switch BLOCKED: ");
       switch (new_mode) {
         case FLIGHT_MODE_POSITION_HOLD:
-          Serial.println("Position Hold requires GPS fix");
+          Serial.println("Position Hold requires GPS functionality");
           break;
         case FLIGHT_MODE_RETURN_TO_HOME:
-          Serial.println("Return to Home requires GPS fix");
+          Serial.println("Return to Home requires GPS functionality");
           break;
       }
       
-      Serial.print("GPS Status: ");
+      Serial.println("GPS functionality requires either:");
+      Serial.println("  - Dedicated GPS with 6+ satellites, OR");
+      Serial.println("  - Synthetic GPS with >30% confidence");
+      
+      Serial.print("Current status: ");
       if (!sensor_data.gps.healthy) {
-        Serial.println("GPS not detected");
+        Serial.print("No dedicated GPS detected");
       } else if (!sensor_data.gps.fix) {
-        Serial.print("GPS detected but no fix (");
+        Serial.print("Dedicated GPS no fix (");
         Serial.print(sensor_data.gps.satellites);
-        Serial.println(" satellites)");
+        Serial.print(" satellites)");
       } else {
-        Serial.print("GPS fix available but insufficient satellites (");
+        Serial.print("Dedicated GPS insufficient satellites (");
         Serial.print(sensor_data.gps.satellites);
-        Serial.println(" < 6 required)");
+        Serial.print(" < 6)");
+      }
+      
+      if (synthetic.synthetic_gps_valid) {
+        Serial.print(", Synthetic GPS available (");
+        Serial.print(synthetic.gps_confidence * 100, 1);
+        Serial.print("% confidence - ");
+        if (synthetic.gps_confidence > 0.3) {
+          Serial.println("sufficient)");
+        } else {
+          Serial.println("insufficient)");
+        }
+      } else {
+        Serial.println(", No synthetic GPS available");
       }
       
       Serial.println("Remaining in current flight mode");
       return; // Don't change mode
+    } else {
+      // GPS functionality available - log source
+      if (dedicated_gps_available) {
+        Serial.println("GPS mode available: Using dedicated GPS");
+      } else if (synthetic_gps_available) {
+        Serial.print("GPS mode available: Using synthetic GPS (");
+        Serial.print(synthetic.gps_confidence * 100, 1);
+        Serial.println("% confidence)");
+      }
     }
   }
   

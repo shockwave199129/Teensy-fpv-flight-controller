@@ -473,4 +473,96 @@ void SensorRedundancySystem::recovery_mode() {
   adjust_flight_characteristics();
   
   Serial.println("Recovery mode - Sensor redundancy system recalibrated");
+}
+
+// Missing function implementations
+void SensorRedundancySystem::enable_fallback(String sensor_type, bool enable) {
+  if (sensor_type == "gps_baro") {
+    config.enable_gps_baro_fallback = enable;
+  } else if (sensor_type == "sonar_baro") {
+    config.enable_sonar_baro_fallback = enable;
+  } else if (sensor_type == "optical_flow_gps") {
+    config.enable_optical_flow_gps_fallback = enable;
+  } else if (sensor_type == "imu_mag") {
+    config.enable_imu_mag_fallback = enable;
+  } else if (sensor_type == "synthetic_gps") {
+    config.enable_synthetic_gps = enable;
+  }
+  
+  Serial.println("Fallback " + sensor_type + " " + (enable ? "enabled" : "disabled"));
+}
+
+void SensorRedundancySystem::set_quality_threshold(String sensor_type, float threshold) {
+  if (sensor_type == "imu") {
+    config.imu_health_threshold = constrain(threshold, 0.1, 1.0);
+  } else if (sensor_type == "gps") {
+    config.gps_accuracy_threshold = constrain(threshold, 1.0, 50.0);
+  } else if (sensor_type == "mag") {
+    config.mag_deviation_threshold = constrain(threshold, 5.0, 45.0);
+  } else if (sensor_type == "baro") {
+    config.baro_noise_threshold = constrain(threshold, 10.0, 200.0);
+  }
+  
+  Serial.println("Quality threshold for " + sensor_type + " set to " + String(threshold));
+}
+
+void SensorRedundancySystem::force_synthetic_mode(String sensor_type, bool enable) {
+  if (sensor_type == "gps") {
+    if (enable) {
+      status.gps_health = SENSOR_FAILED;
+      synthetic.synthetic_gps_valid = true;
+      synthetic.gps_confidence = 0.8;
+      Serial.println("Forced synthetic GPS mode enabled");
+    } else {
+      // Re-evaluate GPS health normally
+      calculate_sensor_health();
+      Serial.println("Synthetic GPS mode disabled - using normal detection");
+    }
+  } else if (sensor_type == "mag") {
+    if (enable) {
+      status.mag_health = SENSOR_FAILED;
+      synthetic.synthetic_mag_valid = true;
+      synthetic.mag_confidence = 0.8;
+      Serial.println("Forced synthetic magnetometer mode enabled");
+    } else {
+      calculate_sensor_health();
+      Serial.println("Synthetic magnetometer mode disabled - using normal detection");
+    }
+  } else if (sensor_type == "baro") {
+    if (enable) {
+      status.baro_health = SENSOR_FAILED;
+      synthetic.synthetic_baro_valid = true;
+      synthetic.baro_confidence = 0.8;
+      Serial.println("Forced synthetic barometer mode enabled");
+    } else {
+      calculate_sensor_health();
+      Serial.println("Synthetic barometer mode disabled - using normal detection");
+    }
+  }
+  
+  // Recalculate flight capability after changes
+  determine_flight_capability();
+  adjust_flight_characteristics();
+}
+
+void SensorRedundancySystem::reset_sensor_failures() {
+  // Reset all failure counters
+  status.imu_failures = 0;
+  status.gps_failures = 0;
+  status.mag_failures = 0;
+  status.baro_failures = 0;
+  status.sonar_failures = 0;
+  status.optical_flow_failures = 0;
+  
+  // Reset alert states
+  last_alert_message = "";
+  alert_timestamp = 0;
+  
+  // Recalculate sensor health
+  calculate_sensor_health();
+  determine_flight_capability();
+  adjust_flight_characteristics();
+  
+  Serial.println("All sensor failure counters and alerts reset");
+  Serial.println("Sensor health status recalculated");
 } 

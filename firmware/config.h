@@ -90,7 +90,7 @@ struct BLHeliSettings {
   bool brake_on_stop;
   uint8_t demag_compensation;      // Off/Low/High
   uint8_t commutation_timing;      // Low/Medium/High
-}
+};
 
 // DShot Commands
 enum DshotCommand {
@@ -646,5 +646,43 @@ struct EnhancedRcData {
 
 // Function Prototypes
 void update_sensor_fusion();
+
+// Phase 2 Feature Classes (Placeholders for now)
+class DualIMUManager {
+public:
+  void init() {}
+  void update() {}
+  IMUData get_fused_data() { 
+    IMUData data = {};
+    return data;
+  }
+};
+
+class DynamicFilteringSystem {
+public:
+  void init() {}
+  void update(SensorData& sensors, RcData& rc) {}
+};
+
+class OpticalFlowSensor {
+public:
+  void init(int sensor_type) {}
+  void update() {}
+  OpticalFlowData get_data() {
+    OpticalFlowData data = {};
+    return data;
+  }
+};
+
+class AdvancedFlightModes {
+public:
+  void init() {}
+  void update(SensorData& sensors, RcData& rc, FlightState& state) {}
+};
+
+// Phase 2 initialization functions
+void init_dual_imu_system() {
+  // Initialize dual IMU system
+}
 
 #endif // CONFIG_H

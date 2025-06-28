@@ -1,0 +1,118 @@
+<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="400" height="400" fill="#f8fafc"/>
+  
+  <!-- Title -->
+  <text x="200" y="30" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="18" font-weight="bold">
+    Quadcopter X-Configuration
+  </text>
+  
+  <!-- Drone body (center frame) -->
+  <rect x="180" y="180" width="40" height="40" rx="6" fill="#374151" stroke="#1f2937" stroke-width="2"/>
+  
+  <!-- Flight Controller -->
+  <rect x="185" y="185" width="30" height="30" rx="3" fill="#1e40af" stroke="#1d4ed8" stroke-width="1"/>
+  <text x="200" y="203" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="8" font-weight="bold">FC</text>
+  
+  <!-- Motor Arms (X configuration) -->
+  <!-- Front Left to Back Right -->
+  <line x1="160" y1="160" x2="240" y2="240" stroke="#374151" stroke-width="8" stroke-linecap="round"/>
+  <!-- Front Right to Back Left -->
+  <line x1="240" y1="160" x2="160" y2="240" stroke="#374151" stroke-width="8" stroke-linecap="round"/>
+  
+  <!-- Motors -->
+  <!-- Motor 1 - Front Right -->
+  <circle cx="240" cy="160" r="20" fill="#ef4444" stroke="#dc2626" stroke-width="2"/>
+  <text x="240" y="167" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="14" font-weight="bold">1</text>
+  
+  <!-- Motor 2 - Back Right -->
+  <circle cx="240" cy="240" r="20" fill="#10b981" stroke="#059669" stroke-width="2"/>
+  <text x="240" y="247" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="14" font-weight="bold">2</text>
+  
+  <!-- Motor 3 - Back Left -->
+  <circle cx="160" cy="240" r="20" fill="#f59e0b" stroke="#d97706" stroke-width="2"/>
+  <text x="160" y="247" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="14" font-weight="bold">3</text>
+  
+  <!-- Motor 4 - Front Left -->
+  <circle cx="160" cy="160" r="20" fill="#8b5cf6" stroke="#7c3aed" stroke-width="2"/>
+  <text x="160" y="167" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="14" font-weight="bold">4</text>
+  
+  <!-- Rotation Direction Arrows -->
+  <!-- Motor 1 - Clockwise -->
+  <path d="M 250 150 A 15 15 0 0 1 250 170" stroke="#dc2626" stroke-width="3" fill="none" marker-end="url(#arrowhead-cw)"/>
+  
+  <!-- Motor 2 - Counter-Clockwise -->
+  <path d="M 250 230 A 15 15 0 0 0 250 250" stroke="#059669" stroke-width="3" fill="none" marker-end="url(#arrowhead-ccw)"/>
+  
+  <!-- Motor 3 - Clockwise -->
+  <path d="M 150 250 A 15 15 0 0 1 150 230" stroke="#d97706" stroke-width="3" fill="none" marker-end="url(#arrowhead-cw)"/>
+  
+  <!-- Motor 4 - Counter-Clockwise -->
+  <path d="M 150 170 A 15 15 0 0 0 150 150" stroke="#7c3aed" stroke-width="3" fill="none" marker-end="url(#arrowhead-ccw)"/>
+  
+  <!-- Arrow markers -->
+  <defs>
+    <marker id="arrowhead-cw" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"/>
+    </marker>
+    <marker id="arrowhead-ccw" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#059669"/>
+    </marker>
+  </defs>
+  
+  <!-- Motor Labels -->
+  <text x="240" y="130" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Motor 1 (FR)
+  </text>
+  <text x="240" y="145" text-anchor="middle" fill="#dc2626" font-family="Arial, sans-serif" font-size="10">
+    Clockwise
+  </text>
+  
+  <text x="240" y="280" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Motor 2 (BR)
+  </text>
+  <text x="240" y="295" text-anchor="middle" fill="#059669" font-family="Arial, sans-serif" font-size="10">
+    Counter-CW
+  </text>
+  
+  <text x="160" y="280" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Motor 3 (BL)
+  </text>
+  <text x="160" y="295" text-anchor="middle" fill="#d97706" font-family="Arial, sans-serif" font-size="10">
+    Clockwise
+  </text>
+  
+  <text x="160" y="130" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Motor 4 (FL)
+  </text>
+  <text x="160" y="145" text-anchor="middle" fill="#7c3aed" font-family="Arial, sans-serif" font-size="10">
+    Counter-CW
+  </text>
+  
+  <!-- Orientation Arrow (Forward) -->
+  <path d="M 200 100 L 200 120" stroke="#1f2937" stroke-width="4" marker-end="url(#forward-arrow)"/>
+  <text x="200" y="95" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="14" font-weight="bold">
+    FORWARD
+  </text>
+  
+  <defs>
+    <marker id="forward-arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#1f2937"/>
+    </marker>
+  </defs>
+  
+  <!-- Legend -->
+  <rect x="20" y="320" width="160" height="70" fill="#ffffff" stroke="#d1d5db" stroke-width="1" rx="4"/>
+  <text x="100" y="335" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Motor Configuration
+  </text>
+  <text x="30" y="350" fill="#1f2937" font-family="Arial, sans-serif" font-size="10">
+    • Motors 1 &amp; 3: Clockwise (CW)
+  </text>
+  <text x="30" y="365" fill="#1f2937" font-family="Arial, sans-serif" font-size="10">
+    • Motors 2 &amp; 4: Counter-Clockwise (CCW)
+  </text>
+  <text x="30" y="380" fill="#1f2937" font-family="Arial, sans-serif" font-size="10">
+    • X-Configuration (most common)
+  </text>
+</svg> 

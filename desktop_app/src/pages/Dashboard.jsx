@@ -106,7 +106,20 @@ function Dashboard({ telemetry, connected, sendCommand }) {
         setEscVoltage(prev => ({ ...prev, available: false }));
       }
 
-      // Parse GPS status
+      // Parse GPS status (enhanced with synthetic GPS support)
+      if (data.includes('GPS ready - Dedicated GPS')) {
+        setSafetyStatus(prev => ({ ...prev, gpsHealthy: true, gpsFix: true, gpsType: 'dedicated' }));
+      } else if (data.includes('GPS ready - Synthetic GPS')) {
+        setSafetyStatus(prev => ({ ...prev, gpsHealthy: true, gpsFix: true, gpsType: 'synthetic' }));
+        const confidenceMatch = data.match(/(\d+\.?\d*)% confidence/);
+        if (confidenceMatch) {
+          setSafetyStatus(prev => ({ ...prev, syntheticGpsConfidence: parseFloat(confidenceMatch[1]) }));
+        }
+      } else if (data.includes('GPS functionality required but not available')) {
+        setSafetyStatus(prev => ({ ...prev, gpsHealthy: false, gpsFix: false, gpsType: 'none' }));
+      }
+
+      // Legacy GPS parsing for compatibility
       if (data.includes('GPS Detected: YES')) {
         setSafetyStatus(prev => ({ ...prev, gpsHealthy: true }));
       } else if (data.includes('GPS Detected: NO')) {
@@ -285,7 +298,7 @@ function Dashboard({ telemetry, connected, sendCommand }) {
   const GPSStatusCard = () => (
     <div className={`card ${
       safetyStatus.gpsRequired 
-        ? (safetyStatus.gpsHealthy && safetyStatus.gpsFix && safetyStatus.gpsSatellites >= 6 
+        ? (safetyStatus.gpsHealthy && safetyStatus.gpsFix 
            ? 'border-green-500' : 'border-red-500')
         : 'border-gray-300'
     }`}>
@@ -297,32 +310,57 @@ function Dashboard({ telemetry, connected, sendCommand }) {
             {safetyStatus.gpsRequired ? 'YES' : 'NO'}
           </span>
         </div>
+        
+        {/* Enhanced GPS Type Display */}
         <div className="flex justify-between">
-          <span>GPS Detected:</span>
-          <span className={safetyStatus.gpsHealthy ? 'text-green-600' : 'text-red-600'}>
-            {safetyStatus.gpsHealthy ? '✅ YES' : '❌ NO'}
+          <span>GPS Type:</span>
+          <span className={
+            safetyStatus.gpsType === 'dedicated' ? 'text-green-600' :
+            safetyStatus.gpsType === 'synthetic' ? 'text-blue-600' : 'text-red-600'
+          }>
+            {safetyStatus.gpsType === 'dedicated' ? '🛰️ Dedicated' :
+             safetyStatus.gpsType === 'synthetic' ? '🔄 Synthetic' : '❌ None'}
           </span>
         </div>
-        <div className="flex justify-between">
-          <span>GPS Fix:</span>
-          <span className={safetyStatus.gpsFix ? 'text-green-600' : 'text-red-600'}>
-            {safetyStatus.gpsFix ? '✅ YES' : '❌ NO'}
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span>Satellites:</span>
-          <span className={safetyStatus.gpsSatellites >= 6 ? 'text-green-600' : 'text-red-600'}>
-            {safetyStatus.gpsSatellites}/6+
-          </span>
-        </div>
-        {safetyStatus.gpsRequired && !safetyStatus.gpsHealthy && (
-          <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded text-red-700 text-sm">
-            ⚠️ GPS functions configured but GPS not available
+        
+        {/* Show synthetic GPS confidence if applicable */}
+        {safetyStatus.gpsType === 'synthetic' && (
+          <div className="flex justify-between">
+            <span>Confidence:</span>
+            <span className={
+              safetyStatus.syntheticGpsConfidence >= 70 ? 'text-green-600' :
+              safetyStatus.syntheticGpsConfidence >= 30 ? 'text-yellow-600' : 'text-red-600'
+            }>
+              {safetyStatus.syntheticGpsConfidence?.toFixed(1) || '--'}%
+            </span>
           </div>
         )}
-        {safetyStatus.gpsRequired && safetyStatus.gpsHealthy && !safetyStatus.gpsFix && (
-          <div className="mt-2 p-2 bg-yellow-100 border border-yellow-300 rounded text-yellow-700 text-sm">
-            ⚠️ Waiting for GPS fix...
+        
+        {/* Show satellite count for dedicated GPS */}
+        {safetyStatus.gpsType === 'dedicated' && (
+          <div className="flex justify-between">
+            <span>Satellites:</span>
+            <span className={safetyStatus.gpsSatellites >= 6 ? 'text-green-600' : 'text-red-600'}>
+              {safetyStatus.gpsSatellites}/6+
+            </span>
+          </div>
+        )}
+        
+        <div className="flex justify-between">
+          <span>Functionality:</span>
+          <span className={safetyStatus.gpsHealthy && safetyStatus.gpsFix ? 'text-green-600' : 'text-red-600'}>
+            {safetyStatus.gpsHealthy && safetyStatus.gpsFix ? '✅ Available' : '❌ Unavailable'}
+          </span>
+        </div>
+        
+        {safetyStatus.gpsRequired && !safetyStatus.gpsHealthy && (
+          <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded text-red-700 text-sm">
+            ⚠️ GPS functions require either dedicated GPS (6+ satellites) or synthetic GPS (&gt;30% confidence)
+          </div>
+        )}
+        {safetyStatus.gpsType === 'synthetic' && (
+          <div className="mt-2 p-2 bg-blue-100 border border-blue-300 rounded text-blue-700 text-sm">
+            ℹ️ Using synthetic GPS generated from IMU + Magnetometer + Barometer data
           </div>
         )}
       </div>

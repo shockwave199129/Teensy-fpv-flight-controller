@@ -1,0 +1,41 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="#1e40af" stroke="#1d4ed8" stroke-width="4"/>
+  
+  <!-- Drone body (center) -->
+  <rect x="108" y="118" width="40" height="20" rx="4" fill="#ffffff"/>
+  <rect x="113" y="123" width="30" height="10" rx="2" fill="#1e40af"/>
+  
+  <!-- Motor arms -->
+  <line x1="88" y1="108" x2="148" y2="148" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+  <line x1="168" y1="108" x2="108" y2="148" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+  
+  <!-- Motors (circles at arm ends) -->
+  <circle cx="88" cy="108" r="12" fill="#374151" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="168" cy="108" r="12" fill="#374151" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="148" cy="148" r="12" fill="#374151" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="108" cy="148" r="12" fill="#374151" stroke="#ffffff" stroke-width="2"/>
+  
+  <!-- Propellers -->
+  <ellipse cx="88" cy="108" rx="8" ry="3" fill="#d1d5db" transform="rotate(45 88 108)"/>
+  <ellipse cx="168" cy="108" rx="8" ry="3" fill="#d1d5db" transform="rotate(-45 168 108)"/>
+  <ellipse cx="148" cy="148" rx="8" ry="3" fill="#d1d5db" transform="rotate(45 148 148)"/>
+  <ellipse cx="108" cy="148" rx="8" ry="3" fill="#d1d5db" transform="rotate(-45 108 148)"/>
+  
+  <!-- Center LED indicator -->
+  <circle cx="128" cy="128" r="4" fill="#ef4444"/>
+  
+  <!-- Flight controller text -->
+  <text x="128" y="200" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="16" font-weight="bold">
+    FPV DRONE
+  </text>
+  <text x="128" y="220" text-anchor="middle" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="12">
+    CONTROLLER
+  </text>
+  
+  <!-- Status indicators -->
+  <circle cx="40" cy="40" r="8" fill="#10b981"/>
+  <circle cx="216" cy="40" r="8" fill="#f59e0b"/>
+  <circle cx="40" cy="216" r="8" fill="#ef4444"/>
+  <circle cx="216" cy="216" r="8" fill="#3b82f6"/>
+</svg> 

@@ -1169,15 +1169,27 @@ void Communication::process_command(String command) {
       safe_to_arm = false;
     }
     
-    // 4. GPS check for GPS-dependent functions
+    // 4. Enhanced GPS check for GPS-dependent functions (includes synthetic GPS)
     Serial.println("4. GPS Status:");
     bool gps_required = check_gps_functions_configured();
     if (gps_required) {
-      if (sensor_data.gps.healthy && sensor_data.gps.fix && sensor_data.gps.satellites >= 6) {
-        Serial.print("   ✓ GPS ready ("); Serial.print(sensor_data.gps.satellites); Serial.println(" satellites)");
+      bool dedicated_gps_ok = (sensor_data.gps.healthy && sensor_data.gps.fix && sensor_data.gps.satellites >= 6);
+      SyntheticSensorData synthetic = sensor_redundancy.get_synthetic_data();
+      bool synthetic_gps_ok = (synthetic.synthetic_gps_valid && synthetic.gps_confidence > 0.3);
+      
+      if (dedicated_gps_ok) {
+        Serial.print("   ✓ GPS ready - Dedicated GPS ("); 
+        Serial.print(sensor_data.gps.satellites); 
+        Serial.println(" satellites)");
+      } else if (synthetic_gps_ok) {
+        Serial.print("   ✓ GPS ready - Synthetic GPS ("); 
+        Serial.print(synthetic.gps_confidence * 100, 1); 
+        Serial.println("% confidence)");
       } else {
-        Serial.println("   ✗ GPS required but not ready");
-        Serial.println("     GPS-dependent functions configured but GPS not available");
+        Serial.println("   ✗ GPS functionality required but not available");
+        Serial.println("     GPS-dependent functions configured but neither available:");
+        Serial.println("     - Dedicated GPS (need 6+ satellites)");
+        Serial.println("     - Synthetic GPS (need >30% confidence)");
         safe_to_arm = false;
       }
     } else {

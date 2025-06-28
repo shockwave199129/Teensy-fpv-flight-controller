@@ -1,0 +1,67 @@
+<svg width="250" height="200" viewBox="0 0 250 200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="250" height="200" fill="#f8fafc"/>
+  
+  <text x="125" y="20" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="16" font-weight="bold">
+    Position 5: Nose Down (90° Pitch Forward)
+  </text>
+  
+  <line x1="20" y1="150" x2="230" y2="150" stroke="#10b981" stroke-width="3"/>
+  <text x="125" y="170" text-anchor="middle" fill="#10b981" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Flat Surface or Wall
+  </text>
+  
+  <rect x="115" y="120" width="20" height="40" rx="4" fill="#374151" stroke="#1f2937" stroke-width="2"/>
+  <rect x="120" y="125" width="10" height="30" rx="2" fill="#1e40af"/>
+  
+  <line x1="105" y1="110" x2="145" y2="170" stroke="#374151" stroke-width="6" stroke-linecap="round"/>
+  <line x1="145" y1="110" x2="105" y2="170" stroke="#374151" stroke-width="6" stroke-linecap="round"/>
+  
+  <circle cx="105" cy="110" r="8" fill="#ef4444" stroke="#dc2626" stroke-width="1"/>
+  <circle cx="145" cy="110" r="8" fill="#8b5cf6" stroke="#7c3aed" stroke-width="1"/>
+  <circle cx="145" cy="170" r="8" fill="#f59e0b" stroke="#d97706" stroke-width="1"/>
+  <circle cx="105" cy="170" r="8" fill="#10b981" stroke="#059669" stroke-width="1"/>
+  
+  <ellipse cx="105" cy="110" rx="2" ry="6" fill="#d1d5db"/>
+  <ellipse cx="145" cy="110" rx="2" ry="6" fill="#d1d5db"/>
+  <ellipse cx="145" cy="170" rx="2" ry="6" fill="#d1d5db"/>
+  <ellipse cx="105" cy="170" rx="2" ry="6" fill="#d1d5db"/>
+  
+  <rect x="115" y="108" width="20" height="4" fill="#6b7280"/>
+  
+  <circle cx="125" cy="113" r="3" fill="#ef4444"/>
+  <text x="125" y="100" text-anchor="middle" fill="#dc2626" font-family="Arial, sans-serif" font-size="10" font-weight="bold">
+    FRONT DOWN
+  </text>
+  
+  <text x="45" y="115" fill="#3b82f6" font-family="Arial, sans-serif" font-size="10" font-weight="bold">
+    90° PITCH
+  </text>
+  <text x="45" y="130" fill="#3b82f6" font-family="Arial, sans-serif" font-size="10" font-weight="bold">
+    FORWARD
+  </text>
+  
+  <text x="125" y="190" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="11">
+    Pitch drone forward 90° - nose/front touching surface
+  </text>
+  
+  <circle cx="200" cy="40" r="8" fill="#fbbf24"/>
+  <text x="215" y="45" fill="#92400e" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Pending
+  </text>
+  
+  <line x1="20" y1="80" x2="230" y2="80" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="5,5"/>
+  <text x="20" y="75" fill="#6b7280" font-family="Arial, sans-serif" font-size="10">
+    Horizon
+  </text>
+  
+  <path d="M 60 90 L 60 110" stroke="#dc2626" stroke-width="2" marker-end="url(#gravity-arrow)"/>
+  <text x="40" y="100" fill="#dc2626" font-family="Arial, sans-serif" font-size="9">
+    Gravity
+  </text>
+  
+  <defs>
+    <marker id="gravity-arrow" markerWidth="8" markerHeight="8" refX="7" refY="2" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,4 L7,2 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+</svg> 

@@ -10,6 +10,11 @@
     "build": "vite build",
     "build-electron": "npm run build && electron-builder",
     "dist": "npm run build && electron-builder --publish=never",
+    "dist-all": "npm run build && electron-builder --win --mac --linux --publish=never",
+    "dist-win": "npm run build && electron-builder --win --publish=never",
+    "dist-mac": "npm run build && electron-builder --mac --publish=never", 
+    "dist-linux": "npm run build && electron-builder --linux --publish=never",
+    "pack": "npm run build && electron-builder --dir",
     "preview": "vite preview"
   },
   "keywords": [
@@ -24,15 +29,16 @@
   "author": "FPV Drone Project",
   "license": "MIT",
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.8.0",
-    "chart.js": "^4.2.1",
-    "react-chartjs-2": "^5.2.0",
-    "serialport": "^10.5.0",
+    "@serialport/parser-readline": "^13.0.0",
+    "chart.js": "^4.5.0",
+    "date-fns": "^2.29.3",
     "electron-store": "^8.1.0",
     "lodash": "^4.17.21",
-    "date-fns": "^2.29.3"
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.3.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.30.1",
+    "serialport": "^10.5.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^3.1.0",
@@ -48,23 +54,118 @@
   "build": {
     "appId": "com.fpvdrone.configurator",
     "productName": "FPV Drone Configurator",
+    "copyright": "Copyright © 2024 FPV Drone Project",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
-      "build/**/*",
+      "dist/**/*",
       "main.js",
       "preload.js",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/**/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!node_modules/**/test/**",
+      "!node_modules/**/*.d.ts"
     ],
-    "mac": {
-      "category": "public.app-category.utilities"
-    },
+    "extraResources": [
+      {
+        "from": "public/",
+        "to": "assets/",
+        "filter": ["**/*"]
+      }
+    ],
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.ico",
+      "publisherName": "FPV Drone Project",
+      "fileAssociations": [
+        {
+          "ext": "fpv",
+          "name": "FPV Drone Configuration",
+          "description": "FPV Drone Configuration File"
+        }
+      ]
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "public/icon.icns",
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "linux": {
-      "target": "AppImage"
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        },
+        {
+          "target": "rpm",
+          "arch": ["x64"]
+        },
+        {
+          "target": "tar.gz",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.png",
+      "category": "Utility",
+      "synopsis": "FPV Drone Flight Controller Configurator",
+      "description": "Professional FPV drone flight controller configuration tool with enhanced safety features."
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "FPV Drone Configurator"
+    },
+    "dmg": {
+      "title": "FPV Drone Configurator",
+      "icon": "public/icon.icns",
+      "background": "build/dmg-background.png",
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 410,
+          "y": 230,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 130,
+          "y": 230,
+          "type": "file"
+        }
+      ]
     }
   }
 }

@@ -1,0 +1,137 @@
+<svg width="300" height="300" viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="150" cy="150" r="140" fill="#f8fafc" stroke="#e5e7eb" stroke-width="2"/>
+  
+  <!-- Outer degree ring -->
+  <circle cx="150" cy="150" r="135" fill="none" stroke="#d1d5db" stroke-width="1"/>
+  
+  <!-- Degree markings -->
+  <g stroke="#6b7280" stroke-width="1" fill="#6b7280">
+    <!-- Major degree marks (every 30 degrees) -->
+    <g font-family="Arial, sans-serif" font-size="12" text-anchor="middle">
+      <!-- 0° (North) -->
+      <line x1="150" y1="15" x2="150" y2="25" stroke-width="2"/>
+      <text x="150" y="40" font-weight="bold" fill="#dc2626">0°</text>
+      
+      <!-- 30° -->
+      <line x1="217.5" y1="35" x2="213" y2="43" stroke-width="2" transform="rotate(30 150 150)"/>
+      <text x="217" y="50" transform="rotate(30 217 50)" font-size="10">30°</text>
+      
+      <!-- 60° -->
+      <line x1="265" y1="127" x2="257" y2="133" stroke-width="2" transform="rotate(60 150 150)"/>
+      <text x="250" y="85" transform="rotate(60 250 85)" font-size="10">60°</text>
+      
+      <!-- 90° (East) -->
+      <line x1="285" y1="150" x2="275" y2="150" stroke-width="2"/>
+      <text x="265" y="155" font-weight="bold" fill="#f59e0b">90°</text>
+      
+      <!-- 120° -->
+      <line x1="265" y1="173" x2="257" y2="167" stroke-width="2" transform="rotate(120 150 150)"/>
+      <text x="250" y="215" transform="rotate(120 250 215)" font-size="10">120°</text>
+      
+      <!-- 150° -->
+      <line x1="217.5" y1="265" x2="213" y2="257" stroke-width="2" transform="rotate(150 150 150)"/>
+      <text x="217" y="250" transform="rotate(150 217 250)" font-size="10">150°</text>
+      
+      <!-- 180° (South) -->
+      <line x1="150" y1="285" x2="150" y2="275" stroke-width="2"/>
+      <text x="150" y="265" font-weight="bold" fill="#10b981">180°</text>
+      
+      <!-- 210° -->
+      <line x1="82.5" y1="265" x2="87" y2="257" stroke-width="2" transform="rotate(210 150 150)"/>
+      <text x="83" y="250" transform="rotate(210 83 250)" font-size="10">210°</text>
+      
+      <!-- 240° -->
+      <line x1="35" y1="173" x2="43" y2="167" stroke-width="2" transform="rotate(240 150 150)"/>
+      <text x="50" y="215" transform="rotate(240 50 215)" font-size="10">240°</text>
+      
+      <!-- 270° (West) -->
+      <line x1="15" y1="150" x2="25" y2="150" stroke-width="2"/>
+      <text x="35" y="155" font-weight="bold" fill="#8b5cf6">270°</text>
+      
+      <!-- 300° -->
+      <line x1="35" y1="127" x2="43" y2="133" stroke-width="2" transform="rotate(300 150 150)"/>
+      <text x="50" y="85" transform="rotate(300 50 85)" font-size="10">300°</text>
+      
+      <!-- 330° -->
+      <line x1="82.5" y1="35" x2="87" y2="43" stroke-width="2" transform="rotate(330 150 150)"/>
+      <text x="83" y="50" transform="rotate(330 83 50)" font-size="10">330°</text>
+    </g>
+    
+    <!-- Minor degree marks (every 10 degrees) -->
+    <g stroke="#9ca3af" stroke-width="0.5">
+      <!-- Generate minor marks programmatically (shown for key positions) -->
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(10 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(20 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(40 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(50 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(70 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(80 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(100 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(110 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(130 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(140 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(160 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(170 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(190 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(200 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(220 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(230 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(250 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(260 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(280 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(290 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(310 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(320 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(340 150 150)"/>
+      <line x1="150" y1="15" x2="150" y2="20" transform="rotate(350 150 150)"/>
+    </g>
+  </g>
+  
+  <!-- Cardinal directions -->
+  <g font-family="Arial, sans-serif" font-weight="bold" text-anchor="middle">
+    <!-- North -->
+    <text x="150" y="60" font-size="24" fill="#dc2626">N</text>
+    <!-- East -->
+    <text x="245" y="158" font-size="24" fill="#f59e0b">E</text>
+    <!-- South -->
+    <text x="150" y="250" font-size="24" fill="#10b981">S</text>
+    <!-- West -->
+    <text x="55" y="158" font-size="24" fill="#8b5cf6">W</text>
+  </g>
+  
+  <!-- Intercardinal directions -->
+  <g font-family="Arial, sans-serif" font-weight="bold" text-anchor="middle" font-size="16" fill="#6b7280">
+    <!-- Northeast -->
+    <text x="212" y="92">NE</text>
+    <!-- Southeast -->
+    <text x="212" y="215">SE</text>
+    <!-- Southwest -->
+    <text x="88" y="215">SW</text>
+    <!-- Northwest -->
+    <text x="88" y="92">NW</text>
+  </g>
+  
+  <!-- Compass needle/arrow (showing North) -->
+  <g stroke="#1f2937" stroke-width="3" fill="#1f2937">
+    <!-- North pointer (red) -->
+    <polygon points="150,50 145,150 155,150" fill="#dc2626" stroke="#b91c1c"/>
+    <!-- South pointer (white with black outline) -->
+    <polygon points="150,250 145,150 155,150" fill="#ffffff" stroke="#1f2937"/>
+    
+    <!-- Center pivot -->
+    <circle cx="150" cy="150" r="8" fill="#1f2937" stroke="#ffffff" stroke-width="2"/>
+    <circle cx="150" cy="150" r="3" fill="#ffffff"/>
+  </g>
+  
+  <!-- Inner circles for visual hierarchy -->
+  <circle cx="150" cy="150" r="100" fill="none" stroke="#e5e7eb" stroke-width="1"/>
+  <circle cx="150" cy="150" r="70" fill="none" stroke="#f3f4f6" stroke-width="1"/>
+  <circle cx="150" cy="150" r="40" fill="none" stroke="#f9fafb" stroke-width="1"/>
+  
+  <!-- GPS/Magnetometer indicator -->
+  <g font-family="Arial, sans-serif" text-anchor="middle">
+    <text x="150" y="20" font-size="14" font-weight="bold" fill="#1f2937">GPS/MAGNETOMETER</text>
+    <text x="150" y="290" font-size="12" fill="#6b7280">Heading: 0° (North)</text>
+  </g>
+</svg> 

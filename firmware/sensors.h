@@ -2347,13 +2347,61 @@ bool check_gps_functions_configured() {
   return false;
 }
 
+// Helper function to check if GPS functionality is available (dedicated OR synthetic)
+bool is_gps_functionality_available() {
+  // Check for dedicated GPS first
+  if (sensor_data.gps.healthy && sensor_data.gps.fix && sensor_data.gps.satellites >= 6) {
+    return true;
+  }
+  
+  // Check for synthetic GPS fallback
+  SyntheticSensorData synthetic = sensor_redundancy.get_synthetic_data();
+  if (synthetic.synthetic_gps_valid && synthetic.gps_confidence > 0.3) {
+    return true;
+  }
+  
+  return false;
+}
+
+// Helper function to check if magnetometer functionality is available (dedicated OR synthetic)
+bool is_magnetometer_functionality_available() {
+  // Check for dedicated magnetometer
+  if (sensor_data.mag.healthy) {
+    return true;
+  }
+  
+  // Check for synthetic magnetometer fallback
+  SyntheticSensorData synthetic = sensor_redundancy.get_synthetic_data();
+  if (synthetic.synthetic_mag_valid && synthetic.mag_confidence > 0.3) {
+    return true;
+  }
+  
+  return false;
+}
+
+// Helper function to check if barometer functionality is available (dedicated OR synthetic)
+bool is_barometer_functionality_available() {
+  // Check for dedicated barometer
+  if (sensor_data.baro.healthy) {
+    return true;
+  }
+  
+  // Check for synthetic barometer fallback
+  SyntheticSensorData synthetic = sensor_redundancy.get_synthetic_data();
+  if (synthetic.synthetic_baro_valid && synthetic.baro_confidence > 0.3) {
+    return true;
+  }
+  
+  return false;
+}
+
 bool is_gps_required_for_arming() {
   // Check if any GPS-dependent functions are configured
   bool gps_functions_configured = check_gps_functions_configured();
   
   if (gps_functions_configured) {
-    // If GPS functions are configured, require GPS to be ready
-    return !(sensor_data.gps.healthy && sensor_data.gps.fix && sensor_data.gps.satellites >= 6);
+    // Enhanced check: Use dedicated OR synthetic GPS
+    return !is_gps_functionality_available();
   }
   
   return false; // No GPS functions configured, GPS not required
@@ -2426,12 +2474,28 @@ bool enhanced_safety_check_for_arming() {
     safe_to_arm = false;
   }
   
-  // 5. GPS requirement check
-  if (is_gps_required_for_arming()) {
-    Serial.println("ARMING BLOCKED: GPS required but not ready");
-    Serial.println("GPS-dependent functions are configured but GPS is not available");
-    Serial.println("Either disable GPS functions or wait for GPS fix");
-    safe_to_arm = false;
+  // 5. GPS requirement check (enhanced with synthetic GPS support)
+  bool gps_functions_configured = check_gps_functions_configured();
+  if (gps_functions_configured) {
+    if (is_gps_functionality_available()) {
+      if (sensor_data.gps.healthy && sensor_data.gps.fix) {
+        Serial.println("GPS Functions: Using dedicated GPS");
+      } else {
+        SyntheticSensorData synthetic = sensor_redundancy.get_synthetic_data();
+        if (synthetic.synthetic_gps_valid) {
+          Serial.print("GPS Functions: Using synthetic GPS (");
+          Serial.print(synthetic.gps_confidence * 100, 1);
+          Serial.println("% confidence)");
+        }
+      }
+    } else {
+      Serial.println("ARMING BLOCKED: GPS functions configured but no GPS available");
+      Serial.println("GPS-dependent functions require either:");
+      Serial.println("  - Dedicated GPS with 6+ satellites, OR");
+      Serial.println("  - Synthetic GPS with >30% confidence");
+      Serial.println("Either disable GPS functions or improve sensor availability");
+      safe_to_arm = false;
+    }
   }
   
   // 6. IMU health check
@@ -2887,5 +2951,614 @@ void confirm_propellers_removed(bool removed) {
     esc_cal_status.safety_confirmed = false;
   }
 }
+
+struct EnhancedSensorFusion {
+  // Multi-rate sensor processing
+  bool multi_rate_fusion_enabled;
+  unsigned long imu_update_interval;      // High frequency (2kHz)
+  unsigned long mag_update_interval;      // Medium frequency (50Hz)
+  unsigned long baro_update_interval;     // Low frequency (25Hz)
+  unsigned long gps_update_interval;      // Very low frequency (10Hz)
+  
+  // Adaptive fusion weights
+  bool adaptive_fusion_enabled;
+  float imu_confidence_weight;            // Dynamic weight based on sensor health
+  float mag_confidence_weight;
+  float baro_confidence_weight;
+  float gps_confidence_weight;
+  
+  // Advanced Kalman filtering
+  bool extended_kalman_filter_enabled;
+  float state_estimate[9];                // Position, velocity, acceleration
+  float covariance_matrix[9][9];         // State covariance
+  float process_noise[9];                 // Process noise model
+  float measurement_noise[4];             // Measurement noise (IMU, GPS, Baro, Mag)
+  
+  // Sensor cross-validation
+  bool cross_validation_enabled;
+  float sensor_agreement_threshold;       // Threshold for sensor disagreement
+  bool sensor_outlier_detection;
+  float outlier_rejection_threshold;
+  
+  // Environmental adaptation
+  bool environmental_adaptation_enabled;
+  float vibration_environment_factor;     // Adjust fusion based on vibration
+  float temperature_compensation_factor;  // Temperature-based sensor drift compensation
+  float magnetic_declination_auto;        // Auto-calculate magnetic declination
+};
+
+struct SensorQuality {
+  float imu_quality_score;               // 0-100 IMU data quality
+  float gps_accuracy_score;              // Based on HDOP and satellite count
+  float magnetometer_quality_score;      // Based on calibration and stability
+  float barometer_stability_score;       // Based on pressure variance
+  
+  unsigned long last_quality_update;
+  bool quality_assessment_enabled;
+};
+
+struct AdvancedFiltering {
+  // Complementary filter with adaptive gains
+  bool adaptive_complementary_enabled;
+  float complementary_alpha;             // Adaptive mixing ratio
+  float complementary_beta;              // Gyro correction gain
+  
+  // Motion detection for filter adaptation
+  bool motion_adaptive_filtering;
+  float motion_threshold;                // Threshold for motion detection
+  bool in_motion;                        // Current motion state
+  float static_filter_gain;              // Gains for static operation
+  float dynamic_filter_gain;             // Gains for dynamic operation
+  
+  // Gravity vector estimation
+  bool gravity_vector_estimation;
+  float estimated_gravity[3];            // Estimated gravity vector
+  float gravity_confidence;              // Confidence in gravity estimate
+};
+
+// Global sensor detection status
+extern SensorDetectionStatus sensor_detection;
+
+// Enhanced sensor detection functions
+void scan_i2c_devices();
+bool detect_imu_sensors();
+bool detect_magnetometer_sensors();
+bool detect_barometer_sensors();
+bool detect_gps_sensor();
+bool detect_sonar_sensor();
+bool detect_optical_flow_sensor();
+bool detect_voltage_current_sensors();
+void perform_full_sensor_detection();
+String get_sensor_detection_report();
+String get_sensor_capabilities_json();
+
+// Individual sensor detection functions
+bool detect_mpu6050(uint8_t address = 0x68);
+bool detect_mpu9250(uint8_t address = 0x68);
+bool detect_icm20948(uint8_t address = 0x69);
+bool detect_icm42688p(uint8_t address = 0x68);
+bool detect_bmi270(uint8_t address = 0x68);
+bool detect_lsm6dso32(uint8_t address = 0x6A);
+bool detect_bmi323(uint8_t address = 0x68);
+bool detect_icm20602(uint8_t address = 0x68);
+bool detect_lsm6ds33(uint8_t address = 0x6B);
+
+bool detect_hmc5883l(uint8_t address = 0x1E);
+bool detect_qmc5883l(uint8_t address = 0x0D);
+bool detect_rm3100(uint8_t address = 0x20);
+bool detect_mmc5883ma(uint8_t address = 0x30);
+bool detect_ist8310(uint8_t address = 0x0E);
+bool detect_lis3mdl(uint8_t address = 0x1C);
+bool detect_ak8963(uint8_t address = 0x0C);
+
+bool detect_bmp280(uint8_t address = 0x76);
+bool detect_bme280(uint8_t address = 0x76);
+bool detect_bmp388(uint8_t address = 0x76);
+bool detect_ms5611(uint8_t address = 0x77);
+bool detect_lps22hb(uint8_t address = 0x5C);
+
+// Enhanced sensor detection implementation
+void scan_i2c_devices() {
+  sensor_detection.i2c_device_count = 0;
+  
+  Serial.println("Scanning I2C bus for devices...");
+  Serial.println("     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f");
+  
+  for (int addr = 0; addr < 128; addr++) {
+    if (addr % 16 == 0) {
+      Serial.print(addr < 16 ? "0" : "");
+      Serial.print(addr, HEX);
+      Serial.print(": ");
+    }
+    
+    Wire.beginTransmission(addr);
+    uint8_t error = Wire.endTransmission();
+    
+    if (error == 0) {
+      Serial.print(addr < 16 ? "0" : "");
+      Serial.print(addr, HEX);
+      Serial.print(" ");
+      
+      // Store found device
+      if (sensor_detection.i2c_device_count < 16) {
+        sensor_detection.i2c_devices[sensor_detection.i2c_device_count] = addr;
+        sensor_detection.i2c_device_count++;
+      }
+    } else {
+      Serial.print("-- ");
+    }
+    
+    if ((addr + 1) % 16 == 0) {
+      Serial.println();
+    }
+  }
+  
+  Serial.print("Found ");
+  Serial.print(sensor_detection.i2c_device_count);
+  Serial.println(" I2C devices");
+}
+
+bool detect_imu_sensors() {
+  bool found_any = false;
+  
+  // Clear IMU detection flags
+  sensor_detection.mpu6050_present = false;
+  sensor_detection.mpu9250_present = false;
+  sensor_detection.icm20948_present = false;
+  sensor_detection.icm42688p_present = false;
+  sensor_detection.bmi270_present = false;
+  sensor_detection.lsm6dso32_present = false;
+  sensor_detection.bmi323_present = false;
+  sensor_detection.icm20602_present = false;
+  sensor_detection.lsm6ds33_present = false;
+  
+  // Scan common IMU addresses
+  uint8_t imu_addresses[] = {0x68, 0x69, 0x6A, 0x6B};
+  
+  for (int i = 0; i < 4; i++) {
+    uint8_t addr = imu_addresses[i];
+    
+    if (detect_mpu6050(addr)) {
+      sensor_detection.mpu6050_present = true;
+      found_any = true;
+      Serial.print("MPU6050 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_mpu9250(addr)) {
+      sensor_detection.mpu9250_present = true;
+      found_any = true;
+      Serial.print("MPU9250 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_icm20948(addr)) {
+      sensor_detection.icm20948_present = true;
+      found_any = true;
+      Serial.print("ICM20948 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_icm42688p(addr)) {
+      sensor_detection.icm42688p_present = true;
+      found_any = true;
+      Serial.print("ICM42688P detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_bmi270(addr)) {
+      sensor_detection.bmi270_present = true;
+      found_any = true;
+      Serial.print("BMI270 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_lsm6dso32(addr)) {
+      sensor_detection.lsm6dso32_present = true;
+      found_any = true;
+      Serial.print("LSM6DSO32 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_bmi323(addr)) {
+      sensor_detection.bmi323_present = true;
+      found_any = true;
+      Serial.print("BMI323 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_icm20602(addr)) {
+      sensor_detection.icm20602_present = true;
+      found_any = true;
+      Serial.print("ICM20602 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_lsm6ds33(addr)) {
+      sensor_detection.lsm6ds33_present = true;
+      found_any = true;
+      Serial.print("LSM6DS33 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+  }
+  
+  if (!found_any) {
+    Serial.println("No IMU sensors detected");
+  }
+  
+  return found_any;
+}
+
+bool detect_magnetometer_sensors() {
+  bool found_any = false;
+  
+  // Clear magnetometer detection flags
+  sensor_detection.hmc5883l_present = false;
+  sensor_detection.qmc5883l_present = false;
+  sensor_detection.rm3100_present = false;
+  sensor_detection.mmc5883ma_present = false;
+  sensor_detection.ist8310_present = false;
+  sensor_detection.lis3mdl_present = false;
+  sensor_detection.ak8963_present = false;
+  
+  // Common magnetometer addresses
+  uint8_t mag_addresses[] = {0x0C, 0x0D, 0x0E, 0x1C, 0x1E, 0x20, 0x30};
+  
+  for (int i = 0; i < 7; i++) {
+    uint8_t addr = mag_addresses[i];
+    
+    if (detect_hmc5883l(addr)) {
+      sensor_detection.hmc5883l_present = true;
+      found_any = true;
+      Serial.print("HMC5883L detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_qmc5883l(addr)) {
+      sensor_detection.qmc5883l_present = true;
+      found_any = true;
+      Serial.print("QMC5883L detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_rm3100(addr)) {
+      sensor_detection.rm3100_present = true;
+      found_any = true;
+      Serial.print("RM3100 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_mmc5883ma(addr)) {
+      sensor_detection.mmc5883ma_present = true;
+      found_any = true;
+      Serial.print("MMC5883MA detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_ist8310(addr)) {
+      sensor_detection.ist8310_present = true;
+      found_any = true;
+      Serial.print("IST8310 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_lis3mdl(addr)) {
+      sensor_detection.lis3mdl_present = true;
+      found_any = true;
+      Serial.print("LIS3MDL detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_ak8963(addr)) {
+      sensor_detection.ak8963_present = true;
+      found_any = true;
+      Serial.print("AK8963 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+  }
+  
+  if (!found_any) {
+    Serial.println("No magnetometer sensors detected");
+  }
+  
+  return found_any;
+}
+
+bool detect_barometer_sensors() {
+  bool found_any = false;
+  
+  // Clear barometer detection flags
+  sensor_detection.bmp280_present = false;
+  sensor_detection.bme280_present = false;
+  sensor_detection.bmp388_present = false;
+  sensor_detection.ms5611_present = false;
+  sensor_detection.lps22hb_present = false;
+  
+  // Common barometer addresses
+  uint8_t baro_addresses[] = {0x76, 0x77, 0x5C, 0x5D};
+  
+  for (int i = 0; i < 4; i++) {
+    uint8_t addr = baro_addresses[i];
+    
+    if (detect_bmp280(addr)) {
+      sensor_detection.bmp280_present = true;
+      found_any = true;
+      Serial.print("BMP280 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_bme280(addr)) {
+      sensor_detection.bme280_present = true;
+      found_any = true;
+      Serial.print("BME280 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_bmp388(addr)) {
+      sensor_detection.bmp388_present = true;
+      found_any = true;
+      Serial.print("BMP388 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_ms5611(addr)) {
+      sensor_detection.ms5611_present = true;
+      found_any = true;
+      Serial.print("MS5611 detected at 0x");
+      Serial.println(addr, HEX);
+    }
+    
+    if (detect_lps22hb(addr)) {
+      sensor_detection.lps22hb_present = true;
+      found_any = true;
+      Serial.print("LPS22HB detected at 0x");
+      Serial.println(addr, HEX);
+    }
+  }
+  
+  if (!found_any) {
+    Serial.println("No barometer sensors detected");
+  }
+  
+  return found_any;
+}
+
+bool detect_gps_sensor() {
+  // Test GPS by checking if UART is receiving data
+  Serial1.begin(9600);
+  delay(100);
+  
+  unsigned long start_time = millis();
+  bool gps_data_received = false;
+  
+  // Wait up to 2 seconds for GPS data
+  while (millis() - start_time < 2000) {
+    if (Serial1.available()) {
+      char c = Serial1.read();
+      if (c == '$') {  // NMEA sentence start
+        gps_data_received = true;
+        break;
+      }
+    }
+    delay(10);
+  }
+  
+  sensor_detection.gps_present = gps_data_received;
+  
+  if (gps_data_received) {
+    Serial.println("GPS sensor detected on UART1");
+  } else {
+    Serial.println("No GPS sensor detected on UART1");
+  }
+  
+  return gps_data_received;
+}
+
+bool detect_sonar_sensor() {
+  // Test sonar by sending a pulse and checking for echo
+  pinMode(SONAR_TRIG_PIN, OUTPUT);
+  pinMode(SONAR_ECHO_PIN, INPUT);
+  
+  digitalWrite(SONAR_TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(SONAR_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(SONAR_TRIG_PIN, LOW);
+  
+  unsigned long duration = pulseIn(SONAR_ECHO_PIN, HIGH, 30000);
+  sensor_detection.sonar_present = (duration > 0 && duration < 25000); // Reasonable range
+  
+  if (sensor_detection.sonar_present) {
+    Serial.println("Sonar sensor detected");
+  } else {
+    Serial.println("No sonar sensor detected");
+  }
+  
+  return sensor_detection.sonar_present;
+}
+
+bool detect_optical_flow_sensor() {
+  // This would need specific implementation for each optical flow sensor type
+  // For now, just check common SPI addresses or I2C addresses
+  sensor_detection.optical_flow_present = false;
+  
+  // Check for PMW3901 on SPI
+  // Check for PAA5100 on I2C
+  // Check for ADNS3080 on SPI
+  
+  // Placeholder implementation
+  Serial.println("Optical flow sensor detection not implemented");
+  return false;
+}
+
+bool detect_voltage_current_sensors() {
+  // Test ADC pins for voltage and current sensors
+  int voltage_reading = analogRead(BATTERY_VOLTAGE_PIN);
+  int current_reading = analogRead(CURRENT_SENSOR_PIN);
+  
+  // Simple heuristic: if readings are not stuck at 0 or max value
+  sensor_detection.voltage_sensor_present = (voltage_reading > 10 && voltage_reading < 1013);
+  sensor_detection.current_sensor_present = (current_reading > 10 && current_reading < 1013);
+  
+  if (sensor_detection.voltage_sensor_present) {
+    Serial.println("Voltage sensor detected");
+  } else {
+    Serial.println("No voltage sensor detected");
+  }
+  
+  if (sensor_detection.current_sensor_present) {
+    Serial.println("Current sensor detected");
+  } else {
+    Serial.println("No current sensor detected");
+  }
+  
+  return sensor_detection.voltage_sensor_present || sensor_detection.current_sensor_present;
+}
+
+void perform_full_sensor_detection() {
+  Serial.println("=== Starting Full Sensor Detection ===");
+  
+  // Initialize I2C
+  Wire.begin();
+  Wire.setClock(100000); // 100kHz for compatibility
+  
+  // Scan I2C bus
+  scan_i2c_devices();
+  
+  // Detect each sensor type
+  detect_imu_sensors();
+  detect_magnetometer_sensors();
+  detect_barometer_sensors();
+  detect_gps_sensor();
+  detect_sonar_sensor();
+  detect_optical_flow_sensor();
+  detect_voltage_current_sensors();
+  
+  sensor_detection.last_detection_scan = millis();
+  sensor_detection.detection_complete = true;
+  
+  Serial.println("=== Sensor Detection Complete ===");
+}
+
+String get_sensor_detection_report() {
+  String report = "=== SENSOR DETECTION REPORT ===\n";
+  
+  // IMU sensors
+  report += "IMU Sensors:\n";
+  if (sensor_detection.mpu6050_present) report += "  ✓ MPU6050\n";
+  if (sensor_detection.mpu9250_present) report += "  ✓ MPU9250\n";
+  if (sensor_detection.icm20948_present) report += "  ✓ ICM20948\n";
+  if (sensor_detection.icm42688p_present) report += "  ✓ ICM42688P\n";
+  if (sensor_detection.bmi270_present) report += "  ✓ BMI270\n";
+  if (sensor_detection.lsm6dso32_present) report += "  ✓ LSM6DSO32\n";
+  if (sensor_detection.bmi323_present) report += "  ✓ BMI323\n";
+  if (sensor_detection.icm20602_present) report += "  ✓ ICM20602\n";
+  if (sensor_detection.lsm6ds33_present) report += "  ✓ LSM6DS33\n";
+  
+  // Magnetometer sensors
+  report += "Magnetometer Sensors:\n";
+  if (sensor_detection.hmc5883l_present) report += "  ✓ HMC5883L\n";
+  if (sensor_detection.qmc5883l_present) report += "  ✓ QMC5883L\n";
+  if (sensor_detection.rm3100_present) report += "  ✓ RM3100\n";
+  if (sensor_detection.mmc5883ma_present) report += "  ✓ MMC5883MA\n";
+  if (sensor_detection.ist8310_present) report += "  ✓ IST8310\n";
+  if (sensor_detection.lis3mdl_present) report += "  ✓ LIS3MDL\n";
+  if (sensor_detection.ak8963_present) report += "  ✓ AK8963\n";
+  
+  // Barometer sensors
+  report += "Barometer Sensors:\n";
+  if (sensor_detection.bmp280_present) report += "  ✓ BMP280\n";
+  if (sensor_detection.bme280_present) report += "  ✓ BME280\n";
+  if (sensor_detection.bmp388_present) report += "  ✓ BMP388\n";
+  if (sensor_detection.ms5611_present) report += "  ✓ MS5611\n";
+  if (sensor_detection.lps22hb_present) report += "  ✓ LPS22HB\n";
+  
+  // Other sensors
+  report += "Other Sensors:\n";
+  if (sensor_detection.gps_present) report += "  ✓ GPS\n";
+  if (sensor_detection.sonar_present) report += "  ✓ Sonar\n";
+  if (sensor_detection.optical_flow_present) report += "  ✓ Optical Flow\n";
+  if (sensor_detection.voltage_sensor_present) report += "  ✓ Voltage Sensor\n";
+  if (sensor_detection.current_sensor_present) report += "  ✓ Current Sensor\n";
+  
+  // I2C devices summary
+  report += "I2C Devices Found: ";
+  report += String(sensor_detection.i2c_device_count);
+  report += "\n";
+  
+  return report;
+}
+
+String get_sensor_capabilities_json() {
+  String json = "{\n";
+  json += "  \"detection_complete\": " + String(sensor_detection.detection_complete ? "true" : "false") + ",\n";
+  json += "  \"last_scan\": " + String(sensor_detection.last_detection_scan) + ",\n";
+  
+  // IMU sensors
+  json += "  \"imu\": {\n";
+  json += "    \"mpu6050\": " + String(sensor_detection.mpu6050_present ? "true" : "false") + ",\n";
+  json += "    \"mpu9250\": " + String(sensor_detection.mpu9250_present ? "true" : "false") + ",\n";
+  json += "    \"icm20948\": " + String(sensor_detection.icm20948_present ? "true" : "false") + ",\n";
+  json += "    \"icm42688p\": " + String(sensor_detection.icm42688p_present ? "true" : "false") + ",\n";
+  json += "    \"bmi270\": " + String(sensor_detection.bmi270_present ? "true" : "false") + ",\n";
+  json += "    \"lsm6dso32\": " + String(sensor_detection.lsm6dso32_present ? "true" : "false") + ",\n";
+  json += "    \"bmi323\": " + String(sensor_detection.bmi323_present ? "true" : "false") + ",\n";
+  json += "    \"icm20602\": " + String(sensor_detection.icm20602_present ? "true" : "false") + ",\n";
+  json += "    \"lsm6ds33\": " + String(sensor_detection.lsm6ds33_present ? "true" : "false") + "\n";
+  json += "  },\n";
+  
+  // Magnetometer sensors
+  json += "  \"magnetometer\": {\n";
+  json += "    \"hmc5883l\": " + String(sensor_detection.hmc5883l_present ? "true" : "false") + ",\n";
+  json += "    \"qmc5883l\": " + String(sensor_detection.qmc5883l_present ? "true" : "false") + ",\n";
+  json += "    \"rm3100\": " + String(sensor_detection.rm3100_present ? "true" : "false") + ",\n";
+  json += "    \"mmc5883ma\": " + String(sensor_detection.mmc5883ma_present ? "true" : "false") + ",\n";
+  json += "    \"ist8310\": " + String(sensor_detection.ist8310_present ? "true" : "false") + ",\n";
+  json += "    \"lis3mdl\": " + String(sensor_detection.lis3mdl_present ? "true" : "false") + ",\n";
+  json += "    \"ak8963\": " + String(sensor_detection.ak8963_present ? "true" : "false") + "\n";
+  json += "  },\n";
+  
+  // Barometer sensors
+  json += "  \"barometer\": {\n";
+  json += "    \"bmp280\": " + String(sensor_detection.bmp280_present ? "true" : "false") + ",\n";
+  json += "    \"bme280\": " + String(sensor_detection.bme280_present ? "true" : "false") + ",\n";
+  json += "    \"bmp388\": " + String(sensor_detection.bmp388_present ? "true" : "false") + ",\n";
+  json += "    \"ms5611\": " + String(sensor_detection.ms5611_present ? "true" : "false") + ",\n";
+  json += "    \"lps22hb\": " + String(sensor_detection.lps22hb_present ? "true" : "false") + "\n";
+  json += "  },\n";
+  
+  // Other sensors
+  json += "  \"other\": {\n";
+  json += "    \"gps\": " + String(sensor_detection.gps_present ? "true" : "false") + ",\n";
+  json += "    \"sonar\": " + String(sensor_detection.sonar_present ? "true" : "false") + ",\n";
+  json += "    \"optical_flow\": " + String(sensor_detection.optical_flow_present ? "true" : "false") + ",\n";
+  json += "    \"voltage_sensor\": " + String(sensor_detection.voltage_sensor_present ? "true" : "false") + ",\n";
+  json += "    \"current_sensor\": " + String(sensor_detection.current_sensor_present ? "true" : "false") + "\n";
+  json += "  },\n";
+  
+  // I2C devices
+  json += "  \"i2c_devices\": [\n";
+  for (int i = 0; i < sensor_detection.i2c_device_count; i++) {
+    json += "    \"0x" + String(sensor_detection.i2c_devices[i], HEX) + "\"";
+    if (i < sensor_detection.i2c_device_count - 1) json += ",";
+    json += "\n";
+  }
+  json += "  ]\n";
+  json += "}";
+  
+  return json;
+}
+
+// Enhanced sensor fusion functions
+void init_enhanced_sensor_fusion();
+void update_enhanced_sensor_fusion();
+void calculate_sensor_quality_scores();
+void apply_adaptive_fusion_weights();
+void detect_sensor_outliers();
+void compensate_environmental_factors();
+void update_extended_kalman_filter();
+void validate_sensor_cross_correlation();
+void adapt_filters_to_motion();
+void estimate_gravity_vector();
 
 #endif // SENSORS_H

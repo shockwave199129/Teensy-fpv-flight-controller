@@ -4,6 +4,37 @@
 #include "config.h"
 #include <Servo.h>
 
+struct AdvancedMotorFeatures {
+  // RPM-based dynamic filtering
+  bool rpm_based_filtering_enabled;
+  float rpm_notch_frequencies[4][3];    // 3 harmonics per motor
+  float rpm_filter_q_factor;
+  bool auto_rpm_filter_tuning;
+  
+  // Motor health monitoring
+  bool motor_health_monitoring_enabled;
+  float motor_vibration_levels[4];
+  float motor_efficiency_scores[4];
+  float motor_temperature_limits[4];
+  bool motor_warning_flags[4];
+  
+  // Enhanced motor mixing
+  bool advanced_mixing_enabled;
+  float motor_thrust_scaling[4];        // Individual motor thrust scaling
+  float dynamic_motor_saturation_comp;  // Dynamic saturation compensation
+  bool torque_based_mixing;             // Torque-based vs thrust-based mixing
+  
+  // Predictive motor control
+  bool predictive_control_enabled;
+  float motor_response_prediction[4];   // Predicted motor response times
+  float thrust_lag_compensation;        // Compensate for motor response lag
+  
+  // Adaptive motor characteristics
+  float motor_kv_values[4];            // Actual KV ratings per motor
+  float motor_resistance[4];           // Motor resistance for efficiency calc
+  bool battery_compensation_enabled;    // Compensate for battery voltage sag
+};
+
 class MotorControl {
 private:
   // Legacy PWM support
@@ -41,6 +72,24 @@ private:
   
   void apply_motor_mixing(PIDOutput& pid_output, int base_throttle);
   int map_throttle_to_protocol(int throttle_percent);
+  
+  // Advanced motor features
+  AdvancedMotorFeatures advanced_motor;
+  
+  // Enhanced motor control methods
+  void update_rpm_based_filtering();
+  void monitor_motor_health_advanced();
+  void apply_enhanced_motor_mixing(PIDOutput& pid_output, int base_throttle);
+  void calculate_motor_efficiency_scores();
+  void apply_predictive_motor_control();
+  void compensate_battery_voltage_sag();
+  void detect_motor_vibration_issues();
+  void optimize_motor_timing();
+  
+  // Motor characterization methods
+  void characterize_motor_response(int motor_num);
+  void calibrate_motor_kv_values();
+  void measure_motor_resistance();
   
 public:
   void init();
@@ -96,6 +145,24 @@ public:
   MotorTelemetry get_motor_telemetry(int motor_num);
   void monitor_motor_health();
   float get_motor_efficiency(int motor_num);
+  
+  // Advanced motor features
+  AdvancedMotorFeatures advanced_motor;
+  
+  // Enhanced motor control methods
+  void update_rpm_based_filtering();
+  void monitor_motor_health_advanced();
+  void apply_enhanced_motor_mixing(PIDOutput& pid_output, int base_throttle);
+  void calculate_motor_efficiency_scores();
+  void apply_predictive_motor_control();
+  void compensate_battery_voltage_sag();
+  void detect_motor_vibration_issues();
+  void optimize_motor_timing();
+  
+  // Motor characterization methods
+  void characterize_motor_response(int motor_num);
+  void calibrate_motor_kv_values();
+  void measure_motor_resistance();
 };
 
 void MotorControl::init() {
@@ -770,6 +837,307 @@ void MotorControl::monitor_motor_health() {
 float MotorControl::get_motor_efficiency(int motor_num) {
   // Implementation of get_motor_efficiency function
   return 0.0f; // Placeholder return, actual implementation needed
+}
+
+// =================== PHASE 3: ADVANCED MOTOR CONTROL IMPLEMENTATIONS ===================
+
+void MotorControl::update_rpm_based_filtering() {
+  if (!advanced_motor.rpm_based_filtering_enabled) return;
+  
+  extern SensorData sensor_data;
+  extern NotchFilter motor_notch_filters[4];
+  
+  // Update RPM-based notch frequencies for each motor
+  for (int i = 0; i < 4; i++) {
+    uint16_t motor_rpm = get_motor_rpm(i);
+    if (motor_rpm > 500) { // Only filter if motor is spinning
+      // Calculate fundamental frequency and harmonics
+      float fundamental_freq = (motor_rpm * 14) / 60.0f; // 14-pole motors
+      
+      // Store harmonic frequencies
+      advanced_motor.rpm_notch_frequencies[i][0] = fundamental_freq;        // 1st harmonic
+      advanced_motor.rpm_notch_frequencies[i][1] = fundamental_freq * 2;    // 2nd harmonic  
+      advanced_motor.rpm_notch_frequencies[i][2] = fundamental_freq * 3;    // 3rd harmonic
+      
+      // Update notch filter with dominant frequency
+      motor_notch_filters[i].center_freq_hz = fundamental_freq;
+      motor_notch_filters[i].q_factor = advanced_motor.rpm_filter_q_factor;
+      motor_notch_filters[i].enabled = true;
+      
+      // Recalculate filter coefficients
+      calculate_notch_coefficients(&motor_notch_filters[i], 1000.0f);
+    } else {
+      motor_notch_filters[i].enabled = false;
+    }
+  }
+}
+
+void MotorControl::monitor_motor_health_advanced() {
+  if (!advanced_motor.motor_health_monitoring_enabled) return;
+  
+  static unsigned long last_health_check = 0;
+  if (millis() - last_health_check < 500) return; // 2Hz update
+  
+  for (int i = 0; i < 4; i++) {
+    // Monitor motor temperature
+    uint8_t temp = get_motor_temperature(i);
+    if (temp > advanced_motor.motor_temperature_limits[i]) {
+      advanced_motor.motor_warning_flags[i] = true;
+      Serial.print("WARNING: Motor ");
+      Serial.print(i + 1);
+      Serial.print(" temperature high: ");
+      Serial.println(temp);
+    }
+    
+    // Calculate vibration level from RPM variance
+    static uint16_t rpm_history[4][10] = {{0}};
+    static int rpm_index = 0;
+    
+    rpm_history[i][rpm_index] = get_motor_rpm(i);
+    
+    if (rpm_index == 9) {
+      float rpm_variance = 0;
+      float mean_rpm = 0;
+      for (int j = 0; j < 10; j++) {
+        mean_rpm += rpm_history[i][j];
+      }
+      mean_rpm /= 10.0f;
+      
+      for (int j = 0; j < 10; j++) {
+        rpm_variance += pow(rpm_history[i][j] - mean_rpm, 2);
+      }
+      rpm_variance /= 10.0f;
+      
+      advanced_motor.motor_vibration_levels[i] = sqrt(rpm_variance) / mean_rpm * 100.0f;
+      
+      // Detect excessive vibration
+      if (advanced_motor.motor_vibration_levels[i] > 15.0f) {
+        advanced_motor.motor_warning_flags[i] = true;
+      } else {
+        advanced_motor.motor_warning_flags[i] = false;
+      }
+    }
+  }
+  
+  rpm_index = (rpm_index + 1) % 10;
+  last_health_check = millis();
+}
+
+void MotorControl::apply_enhanced_motor_mixing(PIDOutput& pid_output, int base_throttle) {
+  if (!advanced_motor.advanced_mixing_enabled) {
+    apply_motor_mixing(pid_output, base_throttle); // Use standard mixing
+    return;
+  }
+  
+  // Enhanced quadcopter motor mixing with individual motor scaling
+  float scaled_throttle = base_throttle;
+  
+  // Apply battery compensation
+  if (advanced_motor.battery_compensation_enabled) {
+    extern SensorData sensor_data;
+    float battery_factor = 12.6f / sensor_data.battery_voltage; // Normalize to 3S full
+    scaled_throttle *= constrain(battery_factor, 0.8f, 1.3f);
+  }
+  
+  // Calculate motor outputs with thrust scaling
+  float motor1_output = scaled_throttle + pid_output.pitch - pid_output.roll - pid_output.yaw;
+  float motor2_output = scaled_throttle + pid_output.pitch + pid_output.roll + pid_output.yaw;
+  float motor3_output = scaled_throttle - pid_output.pitch + pid_output.roll - pid_output.yaw;
+  float motor4_output = scaled_throttle - pid_output.pitch - pid_output.roll + pid_output.yaw;
+  
+  // Apply individual motor thrust scaling
+  motor1_output *= advanced_motor.motor_thrust_scaling[0];
+  motor2_output *= advanced_motor.motor_thrust_scaling[1];
+  motor3_output *= advanced_motor.motor_thrust_scaling[2];
+  motor4_output *= advanced_motor.motor_thrust_scaling[3];
+  
+  // Dynamic saturation compensation
+  float max_output = max(max(motor1_output, motor2_output), max(motor3_output, motor4_output));
+  if (max_output > 2000) {
+    float scale_factor = 2000.0f / max_output * advanced_motor.dynamic_motor_saturation_comp;
+    motor1_output *= scale_factor;
+    motor2_output *= scale_factor;
+    motor3_output *= scale_factor;
+    motor4_output *= scale_factor;
+  }
+  
+  motor_output.motor1 = constrain(motor1_output, 1000, 2000);
+  motor_output.motor2 = constrain(motor2_output, 1000, 2000);
+  motor_output.motor3 = constrain(motor3_output, 1000, 2000);
+  motor_output.motor4 = constrain(motor4_output, 1000, 2000);
+}
+
+void MotorControl::calculate_motor_efficiency_scores() {
+  static unsigned long last_efficiency_calc = 0;
+  if (millis() - last_efficiency_calc < 1000) return; // 1Hz update
+  
+  for (int i = 0; i < 4; i++) {
+    uint16_t rpm = get_motor_rpm(i);
+    uint16_t current = get_motor_current(i);
+    uint16_t voltage = get_motor_voltage(i);
+    
+    if (rpm > 0 && current > 0 && voltage > 0) {
+      // Calculate mechanical power (approximation)
+      float mechanical_power = (rpm * 2 * PI / 60.0f) * 0.01f; // Simplified torque estimation
+      
+      // Calculate electrical power
+      float electrical_power = (voltage / 1000.0f) * (current / 1000.0f);
+      
+      // Efficiency = mechanical power / electrical power
+      if (electrical_power > 0) {
+        advanced_motor.motor_efficiency_scores[i] = (mechanical_power / electrical_power) * 100.0f;
+        advanced_motor.motor_efficiency_scores[i] = constrain(advanced_motor.motor_efficiency_scores[i], 0, 100);
+      }
+    } else {
+      advanced_motor.motor_efficiency_scores[i] = 0;
+    }
+  }
+  
+  last_efficiency_calc = millis();
+}
+
+void MotorControl::apply_predictive_motor_control() {
+  if (!advanced_motor.predictive_control_enabled) return;
+  
+  static float last_motor_outputs[4] = {0};
+  static unsigned long last_prediction_time = 0;
+  
+  unsigned long current_time = micros();
+  float dt = (current_time - last_prediction_time) / 1000000.0f;
+  
+  if (dt > 0.0001f) {
+    for (int i = 0; i < 4; i++) {
+      float current_output = 0;
+      switch (i) {
+        case 0: current_output = motor_output.motor1; break;
+        case 1: current_output = motor_output.motor2; break;
+        case 2: current_output = motor_output.motor3; break;
+        case 3: current_output = motor_output.motor4; break;
+      }
+      
+      // Calculate rate of change
+      float output_rate = (current_output - last_motor_outputs[i]) / dt;
+      
+      // Predict future output based on current rate
+      float predicted_output = current_output + output_rate * advanced_motor.thrust_lag_compensation;
+      
+      // Apply lag compensation
+      predicted_output = constrain(predicted_output, 1000, 2000);
+      
+      // Store prediction for feedback
+      advanced_motor.motor_response_prediction[i] = predicted_output;
+      
+      last_motor_outputs[i] = current_output;
+    }
+    
+    last_prediction_time = current_time;
+  }
+}
+
+void MotorControl::compensate_battery_voltage_sag() {
+  if (!advanced_motor.battery_compensation_enabled) return;
+  
+  extern SensorData sensor_data;
+  static float baseline_voltage = 12.6f; // 3S battery full charge
+  static bool baseline_set = false;
+  
+  if (!baseline_set && sensor_data.battery_voltage > 12.0f) {
+    baseline_voltage = sensor_data.battery_voltage;
+    baseline_set = true;
+  }
+  
+  // Calculate compensation factor
+  float voltage_ratio = baseline_voltage / sensor_data.battery_voltage;
+  float compensation_factor = constrain(voltage_ratio, 0.8f, 1.3f);
+  
+  // Apply compensation to motor thrust scaling
+  for (int i = 0; i < 4; i++) {
+    advanced_motor.motor_thrust_scaling[i] = compensation_factor;
+  }
+}
+
+void MotorControl::detect_motor_vibration_issues() {
+  static unsigned long last_vibration_check = 0;
+  if (millis() - last_vibration_check < 200) return; // 5Hz update
+  
+  extern SensorData sensor_data;
+  
+  // Detect vibrations from accelerometer data
+  static float accel_history[3][20] = {{0}};
+  static int accel_index = 0;
+  
+  accel_history[0][accel_index] = sensor_data.imu.accel_x;
+  accel_history[1][accel_index] = sensor_data.imu.accel_y;
+  accel_history[2][accel_index] = sensor_data.imu.accel_z;
+  
+  accel_index = (accel_index + 1) % 20;
+  
+  // Calculate vibration magnitude
+  float vibration_magnitude = 0;
+  for (int axis = 0; axis < 3; axis++) {
+    float variance = 0;
+    float mean = 0;
+    
+    for (int i = 0; i < 20; i++) {
+      mean += accel_history[axis][i];
+    }
+    mean /= 20.0f;
+    
+    for (int i = 0; i < 20; i++) {
+      variance += pow(accel_history[axis][i] - mean, 2);
+    }
+    variance /= 20.0f;
+    
+    vibration_magnitude += sqrt(variance);
+  }
+  
+  // If high vibration detected, enable more aggressive filtering
+  if (vibration_magnitude > 2.0f) {
+    advanced_motor.rpm_based_filtering_enabled = true;
+    advanced_motor.auto_rpm_filter_tuning = true;
+    
+    // Increase filter Q factor for stronger notching
+    advanced_motor.rpm_filter_q_factor = 30.0f;
+  } else {
+    advanced_motor.rpm_filter_q_factor = 15.0f;
+  }
+  
+  last_vibration_check = millis();
+}
+
+void MotorControl::characterize_motor_response(int motor_num) {
+  if (motor_num < 0 || motor_num >= 4) return;
+  
+  Serial.print("Characterizing motor ");
+  Serial.print(motor_num + 1);
+  Serial.println(" response...");
+  
+  // Perform step response test
+  unsigned long start_time = millis();
+  uint16_t baseline_rpm = get_motor_rpm(motor_num);
+  
+  // Apply step input
+  int step_value = 1300; // 30% throttle step
+  test_motor(motor_num, step_value);
+  
+  // Measure response time
+  while (millis() - start_time < 2000) {
+    uint16_t current_rpm = get_motor_rpm(motor_num);
+    if (current_rpm > baseline_rpm + 500) {
+      advanced_motor.motor_response_prediction[motor_num] = millis() - start_time;
+      break;
+    }
+    delay(10);
+  }
+  
+  // Return to idle
+  test_motor(motor_num, 1000);
+  
+  Serial.print("Motor ");
+  Serial.print(motor_num + 1);
+  Serial.print(" response time: ");
+  Serial.print(advanced_motor.motor_response_prediction[motor_num]);
+  Serial.println(" ms");
 }
 
 #endif // MOTOR_CONTROL_H

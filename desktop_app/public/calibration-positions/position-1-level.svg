@@ -1,0 +1,73 @@
+<svg width="250" height="200" viewBox="0 0 250 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="250" height="200" fill="#f8fafc"/>
+  
+  <!-- Title -->
+  <text x="125" y="20" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="16" font-weight="bold">
+    Position 1: Level (Normal Flight)
+  </text>
+  
+  <!-- Ground/Surface indicator -->
+  <line x1="20" y1="150" x2="230" y2="150" stroke="#10b981" stroke-width="3"/>
+  <text x="125" y="170" text-anchor="middle" fill="#10b981" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Flat Surface
+  </text>
+  
+  <!-- Drone body (center frame) - level position -->
+  <rect x="105" y="130" width="40" height="20" rx="4" fill="#374151" stroke="#1f2937" stroke-width="2"/>
+  
+  <!-- Flight Controller -->
+  <rect x="110" y="135" width="30" height="10" rx="2" fill="#1e40af"/>
+  
+  <!-- Motor Arms (X configuration) -->
+  <line x1="95" y1="120" x2="155" y2="160" stroke="#374151" stroke-width="6" stroke-linecap="round"/>
+  <line x1="155" y1="120" x2="95" y2="160" stroke="#374151" stroke-width="6" stroke-linecap="round"/>
+  
+  <!-- Motors -->
+  <circle cx="95" cy="120" r="8" fill="#ef4444" stroke="#dc2626" stroke-width="1"/>
+  <circle cx="155" cy="120" r="8" fill="#10b981" stroke="#059669" stroke-width="1"/>
+  <circle cx="155" cy="160" r="8" fill="#f59e0b" stroke="#d97706" stroke-width="1"/>
+  <circle cx="95" cy="160" r="8" fill="#8b5cf6" stroke="#7c3aed" stroke-width="1"/>
+  
+  <!-- Propellers -->
+  <ellipse cx="95" cy="120" rx="6" ry="2" fill="#d1d5db"/>
+  <ellipse cx="155" cy="120" rx="6" ry="2" fill="#d1d5db"/>
+  <ellipse cx="155" cy="160" rx="6" ry="2" fill="#d1d5db"/>
+  <ellipse cx="95" cy="160" rx="6" ry="2" fill="#d1d5db"/>
+  
+  <!-- Front indicator (red LED) -->
+  <circle cx="125" cy="125" r="3" fill="#ef4444"/>
+  <text x="125" y="110" text-anchor="middle" fill="#dc2626" font-family="Arial, sans-serif" font-size="10" font-weight="bold">
+    FRONT
+  </text>
+  
+  <!-- Orientation arrows -->
+  <path d="M 60 140 L 80 140" stroke="#1f2937" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="40" y="145" fill="#1f2937" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Level
+  </text>
+  
+  <!-- Arrow marker definition -->
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#1f2937"/>
+    </marker>
+  </defs>
+  
+  <!-- Instructions -->
+  <text x="125" y="190" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="11">
+    Place drone on flat surface in normal flight orientation
+  </text>
+  
+  <!-- Status indicator -->
+  <circle cx="200" cy="40" r="8" fill="#fbbf24"/>
+  <text x="215" y="45" fill="#92400e" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Pending
+  </text>
+  
+  <!-- Horizon line for reference -->
+  <line x1="20" y1="100" x2="230" y2="100" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="5,5"/>
+  <text x="20" y="95" fill="#6b7280" font-family="Arial, sans-serif" font-size="10">
+    Horizon
+  </text>
+</svg> 

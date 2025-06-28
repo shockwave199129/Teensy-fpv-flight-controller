@@ -1,0 +1,85 @@
+<svg width="250" height="200" viewBox="0 0 250 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="250" height="200" fill="#f8fafc"/>
+  
+  <!-- Title -->
+  <text x="125" y="20" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="16" font-weight="bold">
+    Position 2: Upside Down (180° Roll)
+  </text>
+  
+  <!-- Ground/Surface indicator -->
+  <line x1="20" y1="150" x2="230" y2="150" stroke="#10b981" stroke-width="3"/>
+  <text x="125" y="170" text-anchor="middle" fill="#10b981" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Flat Surface
+  </text>
+  
+  <!-- Drone body (center frame) - upside down position -->
+  <rect x="105" y="110" width="40" height="20" rx="4" fill="#374151" stroke="#1f2937" stroke-width="2"/>
+  
+  <!-- Flight Controller (upside down) -->
+  <rect x="110" y="115" width="30" height="10" rx="2" fill="#1e40af"/>
+  
+  <!-- Motor Arms (X configuration) - upside down -->
+  <line x1="95" y1="100" x2="155" y2="140" stroke="#374151" stroke-width="6" stroke-linecap="round"/>
+  <line x1="155" y1="100" x2="95" y2="140" stroke="#374151" stroke-width="6" stroke-linecap="round"/>
+  
+  <!-- Motors (flipped positions) -->
+  <circle cx="95" cy="100" r="8" fill="#8b5cf6" stroke="#7c3aed" stroke-width="1"/>
+  <circle cx="155" cy="100" r="8" fill="#f59e0b" stroke="#d97706" stroke-width="1"/>
+  <circle cx="155" cy="140" r="8" fill="#10b981" stroke="#059669" stroke-width="1"/>
+  <circle cx="95" cy="140" r="8" fill="#ef4444" stroke="#dc2626" stroke-width="1"/>
+  
+  <!-- Propellers (upside down) -->
+  <ellipse cx="95" cy="100" rx="6" ry="2" fill="#d1d5db"/>
+  <ellipse cx="155" cy="100" rx="6" ry="2" fill="#d1d5db"/>
+  <ellipse cx="155" cy="140" rx="6" ry="2" fill="#d1d5db"/>
+  <ellipse cx="95" cy="140" rx="6" ry="2" fill="#d1d5db"/>
+  
+  <!-- Front indicator (now at bottom when upside down) -->
+  <circle cx="125" cy="135" r="3" fill="#ef4444"/>
+  <text x="125" y="155" text-anchor="middle" fill="#dc2626" font-family="Arial, sans-serif" font-size="10" font-weight="bold">
+    FRONT (now down)
+  </text>
+  
+  <!-- Rotation arrows showing 180° flip -->
+  <path d="M 50 120 A 20 20 0 0 1 90 120" stroke="#dc2626" stroke-width="2" fill="none" marker-end="url(#rotation-arrow)"/>
+  <text x="40" y="110" fill="#dc2626" font-family="Arial, sans-serif" font-size="10" font-weight="bold">
+    180°
+  </text>
+  <text x="40" y="125" fill="#dc2626" font-family="Arial, sans-serif" font-size="10" font-weight="bold">
+    FLIP
+  </text>
+  
+  <!-- Arrow marker definition -->
+  <defs>
+    <marker id="rotation-arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+  
+  <!-- Landing gear contact points -->
+  <rect x="105" y="108" width="5" height="3" fill="#6b7280"/>
+  <rect x="140" y="108" width="5" height="3" fill="#6b7280"/>
+  
+  <!-- Instructions -->
+  <text x="125" y="190" text-anchor="middle" fill="#1f2937" font-family="Arial, sans-serif" font-size="11">
+    Flip drone 180° - propellers/arms touching surface
+  </text>
+  
+  <!-- Status indicator -->
+  <circle cx="200" cy="40" r="8" fill="#fbbf24"/>
+  <text x="215" y="45" fill="#92400e" font-family="Arial, sans-serif" font-size="12" font-weight="bold">
+    Pending
+  </text>
+  
+  <!-- Horizon line for reference -->
+  <line x1="20" y1="80" x2="230" y2="80" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="5,5"/>
+  <text x="20" y="75" fill="#6b7280" font-family="Arial, sans-serif" font-size="10">
+    Horizon
+  </text>
+  
+  <!-- Warning -->
+  <text x="175" y="85" text-anchor="middle" fill="#dc2626" font-family="Arial, sans-serif" font-size="9" font-weight="bold">
+    ⚠️ Handle carefully
+  </text>
+</svg> 
