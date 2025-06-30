@@ -3,6 +3,34 @@
 
 #include <Arduino.h>
 
+// Sensor Health Status Enumeration (for sensor redundancy)
+typedef enum {
+  SENSOR_HEALTHY = 0,
+  SENSOR_DEGRADED = 1,
+  SENSOR_FAILED = 2,
+  SENSOR_UNAVAILABLE = 3
+} SensorHealthStatus;
+
+// Sensor Status Structure (for sensor redundancy)
+struct SensorStatus {
+  SensorHealthStatus imu_health;
+  SensorHealthStatus gps_health;
+  SensorHealthStatus mag_health;
+  SensorHealthStatus baro_health;
+  float quality_score;
+  bool redundancy_active;
+  unsigned long last_update;
+  bool primary_imu_ok;
+  bool secondary_imu_ok;
+  bool gps_ok;
+  bool mag_ok;
+  bool baro_ok;
+  bool synthetic_gps_available;
+  bool synthetic_mag_available;
+  bool synthetic_baro_available;
+};
+#include "constants.h"
+
 // Pin Definitions (based on documentation)
 #define MOTOR1_PIN 2
 #define MOTOR2_PIN 3
@@ -73,7 +101,7 @@ struct EscFirmwareCapabilities {
   bool supports_led_control;
   bool supports_settings_via_dshot;
   bool supports_firmware_update;
-  uint16_t max_rpm;
+  uint32_t max_rpm;
   uint8_t pole_count;
 };
 
@@ -101,12 +129,13 @@ enum DshotCommand {
   DSHOT_CMD_BEEP4 = 4,
   DSHOT_CMD_BEEP5 = 5,
   DSHOT_CMD_ESC_INFO = 6,
-  DSHOT_CMD_SPIN_DIRECTION_1 = 7,
-  DSHOT_CMD_SPIN_DIRECTION_2 = 8,
-  DSHOT_CMD_3D_MODE_OFF = 9,
-  DSHOT_CMD_3D_MODE_ON = 10,
-  DSHOT_CMD_SETTINGS_REQUEST = 11,
-  DSHOT_CMD_SAVE_SETTINGS = 12,
+  DSHOT_CMD_ESC_CALIBRATION = 7,
+  DSHOT_CMD_SPIN_DIRECTION_1 = 8,
+  DSHOT_CMD_SPIN_DIRECTION_2 = 9,
+  DSHOT_CMD_3D_MODE_OFF = 10,
+  DSHOT_CMD_3D_MODE_ON = 11,
+  DSHOT_CMD_SETTINGS_REQUEST = 12,
+  DSHOT_CMD_SAVE_SETTINGS = 13,
   DSHOT_CMD_SPIN_DIRECTION_NORMAL = 20,
   DSHOT_CMD_SPIN_DIRECTION_REVERSED = 21,
   DSHOT_CMD_LED0_ON = 22,
@@ -143,20 +172,6 @@ enum LedStatus {
   LED_ERROR
 };
 
-// Safety Constants
-#define RC_TIMEOUT_MS 1000
-#define LOW_VOLTAGE_THRESHOLD 10.5  // Volts
-#define ARM_THROTTLE_THRESHOLD 1100
-#define ARM_YAW_THRESHOLD 1800
-#define DISARM_YAW_THRESHOLD 1200
-#define ARM_SEQUENCE_TIME_MS 2000
-#define MAX_LOOP_TIME_US 2000
-
-// Sensor Constants
-#define VOLTAGE_SCALE 0.0161  // ADC to voltage conversion
-#define CURRENT_SCALE 0.0366  // ADC to current conversion
-#define MAX_LOOP_TIME_US 1000  // Maximum acceptable loop time in microseconds
-
 // PWM Constants - Enhanced for multiple protocols
 #define ESC_MIN_PWM 1000
 #define ESC_MAX_PWM 2000
@@ -184,75 +199,9 @@ enum LedStatus {
 #define DSHOT_BIT_0_HIGH_TIME_FACTOR 0.37  // ~37% high for bit 0
 #define DSHOT_BIT_1_HIGH_TIME_FACTOR 0.74  // ~74% high for bit 1
 
-// PID Constants (default values)
-#define DEFAULT_ROLL_KP 1.0
-#define DEFAULT_ROLL_KI 0.0
-#define DEFAULT_ROLL_KD 0.1
-
-#define DEFAULT_PITCH_KP 1.0
-#define DEFAULT_PITCH_KI 0.0
-#define DEFAULT_PITCH_KD 0.1
-
-#define DEFAULT_YAW_KP 1.0
-#define DEFAULT_YAW_KI 0.0
-#define DEFAULT_YAW_KD 0.1
-
-#define DEFAULT_ALT_KP 2.0
-#define DEFAULT_ALT_KI 0.1
-#define DEFAULT_ALT_KD 0.5
-
-// Enhanced PID Constants for Cascaded Control
-// Rate Loop (Inner Loop) - Fast response for direct gyro control
-#define DEFAULT_RATE_ROLL_KP 0.8
-#define DEFAULT_RATE_ROLL_KI 0.1
-#define DEFAULT_RATE_ROLL_KD 0.01
-
-#define DEFAULT_RATE_PITCH_KP 0.8
-#define DEFAULT_RATE_PITCH_KI 0.1
-#define DEFAULT_RATE_PITCH_KD 0.01
-
-#define DEFAULT_RATE_YAW_KP 1.2
-#define DEFAULT_RATE_YAW_KI 0.05
-#define DEFAULT_RATE_YAW_KD 0.0
-
-// Angle Loop (Outer Loop) - Smooth response for stabilization
-#define DEFAULT_ANGLE_ROLL_KP 6.0
-#define DEFAULT_ANGLE_ROLL_KI 0.0
-#define DEFAULT_ANGLE_ROLL_KD 0.0
-
-#define DEFAULT_ANGLE_PITCH_KP 6.0
-#define DEFAULT_ANGLE_PITCH_KI 0.0
-#define DEFAULT_ANGLE_PITCH_KD 0.0
-
-// Altitude Control (Cascaded)
-#define DEFAULT_ALT_POS_KP 2.0   // Position controller
-#define DEFAULT_ALT_POS_KI 0.1
-#define DEFAULT_ALT_POS_KD 0.5
-
-#define DEFAULT_ALT_RATE_KP 8.0  // Velocity controller  
-#define DEFAULT_ALT_RATE_KI 0.2
-#define DEFAULT_ALT_RATE_KD 0.1
-
-// Mahony Filter Parameters
-#define MAHONY_KP 0.5       // Proportional gain
-#define MAHONY_KI 0.0       // Integral gain (usually 0)
-#define GYRO_DRIFT_BIAS_GAIN 0.0f
-
-// Enhanced Filtering Parameters
-#define GYRO_LPF_CUTOFF_HZ 100    // Gyro low-pass filter
-#define ACCEL_LPF_CUTOFF_HZ 30    // Accelerometer low-pass filter  
-#define D_TERM_LPF_CUTOFF_HZ 50   // D-term low-pass filter
-#define NOTCH_FILTER_CENTER_HZ 180 // Motor noise notch filter
-
-// Vibration and Noise Filtering
-#define VIBRATION_DETECTION_THRESHOLD 2.0  // G-force threshold
-#define GYRO_NOISE_THRESHOLD 0.5           // deg/s threshold
-#define ACCEL_NOISE_THRESHOLD 0.1          // G threshold
-
-// DShot Telemetry Integration
-#define DSHOT_TELEMETRY_UPDATE_HZ 100     // 100Hz telemetry rate
-#define RPM_FILTER_ENABLED true           // Enable RPM-based filtering
-#define RPM_NOTCH_HARMONICS 3             // Number of harmonics to filter
+// Use constants from constants.h for all other values
+// Do not redefine: VOLTAGE_SCALE, CURRENT_SCALE, MAX_LOOP_TIME_US
+// Do not redefine: DEFAULT_*_KP/KI/KD values, MAHONY_*, etc.
 
 // Data Structures
 struct IMUData {
@@ -260,6 +209,7 @@ struct IMUData {
   float gyro_x, gyro_y, gyro_z;
   float temp;
   bool healthy;
+  bool calibrated;
   unsigned long last_update;
 };
 
@@ -267,6 +217,7 @@ struct MagnetometerData {
   float mag_x, mag_y, mag_z;
   float heading;
   bool healthy;
+  bool calibrated;
   unsigned long last_update;
 };
 
@@ -275,6 +226,7 @@ struct BarometerData {
   float altitude;
   float temperature;
   bool healthy;
+  bool calibrated;
   unsigned long last_update;
 };
 
@@ -286,12 +238,14 @@ struct GPSData {
   int satellites;
   bool fix;
   bool healthy;
+  bool calibrated;
   unsigned long last_update;
 };
 
 struct SonarData {
   float distance;
   bool healthy;
+  bool calibrated;
   unsigned long last_update;
 };
 
@@ -341,7 +295,6 @@ struct PIDGains {
   float output_min, output_max;
 };
 
-// ESC Configuration Structure
 struct EscConfig {
   EscProtocol protocol;
   EscFirmwareType firmware_type;
@@ -362,7 +315,6 @@ struct EscConfig {
   uint16_t motor_kv[4];              // Motor KV rating per motor
 };
 
-// Motor Telemetry Structure
 struct MotorTelemetry {
   uint16_t rpm;
   uint8_t temperature;  // Celsius
@@ -373,7 +325,15 @@ struct MotorTelemetry {
   unsigned long last_update;
 };
 
-// RPM-based filtering
+struct NotchFilter {
+  float center_freq_hz;
+  float bandwidth_hz;
+  float q_factor;
+  float b0, b1, b2, a1, a2;
+  float x1, x2, y1, y2;
+  bool enabled;
+};
+
 struct RPMFilter {
   float motor_freq_hz[4];      // Current motor frequencies
   float notch_freq_hz[4];      // Calculated notch frequencies
@@ -382,10 +342,10 @@ struct RPMFilter {
   float rpm_lpf_hz;            // RPM low-pass filter
 };
 
-// Dual IMU Configuration
-#define ENABLE_DUAL_IMU true
-#define PRIMARY_IMU_ADDRESS 0x68    // MPU6050/ICM20948 primary
-#define SECONDARY_IMU_ADDRESS 0x69  // Secondary IMU address
+// All remaining structures follow similar pattern...
+// Using constants from constants.h instead of redefining
+
+// Additional Required Structures
 
 // IMU Type Definitions (for wide sensor support)
 enum IMUType {
@@ -446,20 +406,7 @@ struct DynamicFilter {
   float signal_to_noise_ratio;
 };
 
-// Advanced Flight Mode Parameters
-#define ACRO_PLUS_RECOVERY_ANGLE 60    // Auto-level trigger angle
-#define SPORT_MODE_RATE_MULTIPLIER 1.5 // Increased response rates
-#define CINEMATIC_EXPO_FACTOR 0.3      // Smooth expo for cinematic mode
-#define GPS_RESCUE_CLIMB_RATE 2.0      // m/s climb rate for GPS rescue
-#define TURTLE_MODE_THROTTLE_LIMIT 0.7 // Reduced power in turtle mode
-
 // Optical Flow Sensor Configuration
-#define ENABLE_OPTICAL_FLOW true
-#define OPTICAL_FLOW_TYPE_PMW3901 1
-#define OPTICAL_FLOW_TYPE_PAA5100 2
-#define OPTICAL_FLOW_TYPE_ADNS3080 3
-#define SELECTED_OPTICAL_FLOW OPTICAL_FLOW_TYPE_PMW3901
-
 struct OpticalFlowData {
   float velocity_x, velocity_y;   // m/s
   float displacement_x, displacement_y; // Integrated position
@@ -530,6 +477,11 @@ enum SwitchPosition {
   SWITCH_MID,        // 1300-1700
   SWITCH_HIGH        // > 1700
 };
+
+// After enum SwitchPosition definition
+#define SWITCH_POS_LOW SWITCH_LOW
+#define SWITCH_POS_MIDDLE SWITCH_MID
+#define SWITCH_POS_HIGH SWITCH_HIGH
 
 // Channel Mapping Configuration
 struct ChannelMapping {
@@ -609,6 +561,11 @@ struct FunctionSwitches {
   
   uint8_t turtle_channel;         // Turtle mode channel
   uint8_t beeper_channel;         // Beeper activation channel
+  
+  SwitchPosition arm_disarm;     // Current arm/disarm switch position
+  SwitchPosition flight_mode;    // Current flight mode switch position
+  SwitchPosition beeper;         // Current beeper switch position
+  SwitchPosition rth;            // Current RTH switch position
 };
 
 // Enhanced RC Data with channel mapping
@@ -642,47 +599,99 @@ struct EnhancedRcData {
   // Channel health
   bool channel_health[16];        // Per-channel signal health
   uint16_t channel_timeouts[16];  // Per-channel timeout counters
+  
+  bool failsafe;                 // Failsafe flag used by receivers.cpp
+};
+
+// Battery Status Structure
+struct BatteryStatus {
+  bool connected;
+  bool low_voltage_warning;
+  bool critical_voltage;
+  float voltage;
+  float percentage;
+  float current;
+  float remaining_capacity_mah;
+  unsigned long last_update;
+};
+
+// Calibration Data Structure
+struct CalibrationData {
+  // Gyroscope calibration
+  bool gyro_calibrated;
+  float gyro_offsets[3];
+  float gyro_scale_factors[3];
+  
+  // Accelerometer calibration
+  bool accel_calibrated;
+  float accel_offsets[3];
+  float accel_scale_matrix[3][3];
+  
+  // Magnetometer calibration
+  bool mag_calibrated;
+  float mag_offsets[3];
+  float mag_scale_matrix[3][3];
+  float mag_declination;
+  
+  // ESC calibration
+  bool esc_calibrated;
+  uint16_t esc_min_values[4];
+  uint16_t esc_max_values[4];
+  uint8_t esc_cal_quality;        // ESC calibration quality score
+  unsigned long esc_cal_time;     // ESC calibration timestamp
+  
+  // System calibration status
+  bool system_calibrated;
+  unsigned long calibration_timestamp;
+};
+
+// Sensor Redundancy Types
+enum FlightCapability {
+  FLIGHT_CAPABILITY_NONE = 0,
+  FLIGHT_CAPABILITY_BASIC,
+  FLIGHT_CAPABILITY_ENHANCED,
+  FLIGHT_CAPABILITY_FULL_GPS
+};
+
+// Flight Tuning Structure
+struct FlightTuning {
+  float stability_gain_multiplier;
+  float aggressiveness_factor;
+  float response_time;
+};
+
+// Sensor Redundancy Configuration
+struct SensorRedundancyConfig {
+  bool dual_imu_enabled;
+  bool synthetic_sensors_enabled;
+  float failover_threshold;
+  unsigned long validation_timeout_ms;
+  bool auto_failover_enabled;
+};
+
+struct SyntheticSensorData {
+  bool synthetic_gps_valid;
+  float synthetic_lat, synthetic_lon;
+  float gps_confidence;
+  bool synthetic_mag_valid;
+  float synthetic_heading;
+  float mag_confidence;
+  bool synthetic_baro_valid;
+  float synthetic_altitude;
+  float baro_confidence;
 };
 
 // Function Prototypes
 void update_sensor_fusion();
+void init_pins();
 
-// Phase 2 Feature Classes (Placeholders for now)
-class DualIMUManager {
-public:
-  void init() {}
-  void update() {}
-  IMUData get_fused_data() { 
-    IMUData data = {};
-    return data;
-  }
-};
+// Forward declarations - implementations now in separate files
+class DualIMUManager;
+class DynamicFilteringSystem;
+class OpticalFlowSensor;
+class AdvancedFlightModes;
 
-class DynamicFilteringSystem {
-public:
-  void init() {}
-  void update(SensorData& sensors, RcData& rc) {}
-};
-
-class OpticalFlowSensor {
-public:
-  void init(int sensor_type) {}
-  void update() {}
-  OpticalFlowData get_data() {
-    OpticalFlowData data = {};
-    return data;
-  }
-};
-
-class AdvancedFlightModes {
-public:
-  void init() {}
-  void update(SensorData& sensors, RcData& rc, FlightState& state) {}
-};
-
-// Phase 2 initialization functions
-void init_dual_imu_system() {
-  // Initialize dual IMU system
-}
+// Phase 2 initialization function declaration
+void init_dual_imu_system();
 
 #endif // CONFIG_H

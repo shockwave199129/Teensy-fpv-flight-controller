@@ -1,23 +1,5 @@
-#ifndef LED_CONTROL_H
-#define LED_CONTROL_H
-
-#include "config.h"
-#include <FastLED.h>
-
-class LEDControl {
-private:
-  CRGB leds[NUM_LEDS];
-  LedStatus current_status;
-  unsigned long last_update;
-  int animation_step;
-  
-public:
-  void init();
-  void update();
-  void set_status(LedStatus status);
-  void update_health_status(SensorData& sensor_data, FlightState& flight_state);
-  void show_custom_pattern(CRGB color, int pattern);
-};
+#include "led_control.h"
+#include "Arduino.h"
 
 void LEDControl::init() {
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
@@ -195,4 +177,17 @@ void LEDControl::show_custom_pattern(CRGB color, int pattern) {
   FastLED.show();
 }
 
-#endif // LED_CONTROL_H
+void LEDControl::flash_error() {
+  // Emergency error flash - immediate override of current pattern
+  fill_solid(leds, NUM_LEDS, CRGB::Red);
+  FastLED.show();
+  delay(100);
+  fill_solid(leds, NUM_LEDS, CRGB::White);
+  FastLED.show();
+  delay(100);
+  fill_solid(leds, NUM_LEDS, CRGB::Red);
+  FastLED.show();
+  delay(100);
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  FastLED.show();
+} 

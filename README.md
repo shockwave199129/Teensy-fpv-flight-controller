@@ -12,6 +12,7 @@ This project implements a **professional-grade flight controller** for quadcopte
 - ✅ **Universal ESC Protocol Support**: PWM, OneShot125/42, Multishot, DShot150/300/600/1200
 - ✅ **ESC Firmware Compatibility**: BLHeli_S, BLHeli_32, BlueJay, AM32, ESCape32, Generic
 - ✅ **DShot Telemetry**: Real-time RPM, temperature, voltage, current monitoring  
+- ✅ **On-board Blackbox SD Logging** (auto-enabled when SD card present, disabled while USB connected)
 - ✅ **Bidirectional DShot**: 3D mode support with motor direction control
 - ✅ **Multiple RC Protocols**: PPM, iBUS, SBUS, ExpressLRS (ELRS)
 - ✅ **Comprehensive Sensor Support**: 9 IMU types, 7 magnetometer types, 5 barometer types
@@ -410,22 +411,9 @@ esc calibration complete        # Complete calibration process
 ##### **5. RC Receiver Calibration**
 ```bash
 # Set your RC protocol first
-set rc protocol 2    # 0=PPM, 1=iBUS, 2=SBUS, 3=ELRS
-
-# Then calibrate channels
-get_rc_data         # Verify RC signal is working
-channel_test 1      # Test individual channels
-channel_test 2
-channel_test 3
-channel_test 4
-
-# Map channels to functions
-set channel 1 function 0 normal     # Throttle
-set channel 2 function 1 normal     # Roll
-set channel 3 function 2 normal     # Pitch
-set channel 4 function 3 normal     # Yaw
-set channel 5 function 4 normal     # Arm/Disarm switch
-set channel 6 function 5 normal     # Flight mode switch
+set rc protocol 1      # iBUS
+set rc protocol 2      # SBUS
+status                 # should now show RC signal valid when transmitter on
 ```
 
 #### **6. Verify Calibration Status**
