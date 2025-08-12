@@ -307,6 +307,59 @@ void Communication::process_command(String command) {
       Serial.println("BLACKBOX commands: STATUS | CLEAR");
     }
   }
+  else if (command == "FRAME STATUS" || command == "FRAME TYPE") {
+    Serial.println("=== Frame Configuration ===");
+    Serial.print("Compiled Frame Type: ");
+    switch (FRAME_TYPE) {
+      case FRAME_X4:  Serial.println("X4 (Quad)"); break;
+      case FRAME_Y4:  Serial.println("Y4 (Quad Y)"); break;
+      case FRAME_X6:  Serial.println("X6 (Hexa)"); break;
+      case FRAME_X8:  Serial.println("X8 (Octo Coax)"); break;
+      case FRAME_X12: Serial.println("X12 (Dodeca Coax)"); break;
+      default:        Serial.println("Unknown"); break;
+    }
+    Serial.print("Motor Count: ");
+    Serial.println(MOTOR_COUNT);
+    Serial.println("\nTo change the frame type compile the firmware with e.g. -DFRAME_TYPE=FRAME_X6 or edit constants.h . A reboot / re-flash is required – frame type is compile-time, not runtime.");
+  }
+  else if (command.startsWith("SET ESC DIRECTION")) {
+    // Expected: SET ESC DIRECTION <motorIdx 1-based> <NORMAL|REVERSE>
+    int idx1 = command.indexOf(' ', 17); // position after "SET ESC DIRECTION"
+    if(idx1>0){
+        String rest = command.substring(idx1+1);
+        rest.trim();
+        int space = rest.indexOf(' ');
+        if(space>0){
+            String motorStr = rest.substring(0,space);
+            String dirStr = rest.substring(space+1);
+            motorStr.trim(); dirStr.trim();
+            int m = motorStr.toInt();
+            if(m>=1 && m<=MOTOR_COUNT){
+                dirStr.toUpperCase();
+                int direction = 1;
+                if(dirStr=="REVERSE" || dirStr=="CCW" || dirStr=="R" ) direction = -1;
+                motor_control.set_motor_direction(m-1,direction);
+                Serial.print("Motor "); Serial.print(m); Serial.print(" direction set to "); Serial.println(direction==1?"NORMAL(CW)":"REVERSE(CCW)");
+            } else {
+                Serial.println("Invalid motor index");
+            }
+        }
+    }
+  }
+  else if (command == "CHECK MOTOR DIRECTION") {
+      Serial.println("=== Motor Directions ===");
+      for(int m=0;m<MOTOR_COUNT;m++){
+         int dir = motor_control.get_esc_config().motor_direction[m];
+         Serial.print("Motor "); Serial.print(m+1); Serial.print(": "); Serial.println(dir==1?"NORMAL(CW)":"REVERSE(CCW)");
+      }
+  }
+  else if (command == "SET MOTOR DIRECTION DEFAULT") {
+      motor_control.set_default_motor_directions();
+      Serial.println("Motor directions set to frame defaults.");
+  }
+  else if (command == "VALIDATE MOTOR DIRECTION") {
+      motor_control.validate_motor_directions(true);
+  }
   else {
     Serial.println("Unknown command. Type 'help' for available commands.");
   }
@@ -355,6 +408,11 @@ void Communication::print_help() {
   Serial.println("Other Commands:");
   Serial.println("  reboot                   - Restart controller");
   Serial.println("=====================================\n");
+  Serial.println("  frame status            - Show current compiled frame type");
+  Serial.println("  set esc direction <n> <normal|reverse> - set individual motor spin direction");
+  Serial.println("  check motor direction             - list current motor direction");
+  Serial.println("  set motor direction default        - apply default direction for current frame");
+  Serial.println("  validate motor direction           - check directions match frame template");
 }
 
 void Communication::print_status() {

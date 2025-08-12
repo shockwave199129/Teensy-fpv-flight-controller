@@ -8,38 +8,38 @@
 struct AdvancedMotorFeatures {
   // RPM-based dynamic filtering
   bool rpm_based_filtering_enabled;
-  float rpm_notch_frequencies[4][3];    // 3 harmonics per motor
+  float rpm_notch_frequencies[MAX_MOTORS][3];    // 3 harmonics per motor
   float rpm_filter_q_factor;
   bool auto_rpm_filter_tuning;
   
   // Motor health monitoring
   bool motor_health_monitoring_enabled;
-  float motor_vibration_levels[4];
-  float motor_efficiency_scores[4];
-  float motor_temperature_limits[4];
-  bool motor_warning_flags[4];
+  float motor_vibration_levels[MAX_MOTORS];
+  float motor_efficiency_scores[MAX_MOTORS];
+  float motor_temperature_limits[MAX_MOTORS];
+  bool motor_warning_flags[MAX_MOTORS];
   
   // Enhanced motor mixing
   bool advanced_mixing_enabled;
-  float motor_thrust_scaling[4];        // Individual motor thrust scaling
+  float motor_thrust_scaling[MAX_MOTORS];        // Individual motor thrust scaling
   float dynamic_motor_saturation_comp;  // Dynamic saturation compensation
   bool torque_based_mixing;             // Torque-based vs thrust-based mixing
   
   // Predictive motor control
   bool predictive_control_enabled;
-  float motor_response_prediction[4];   // Predicted motor response times
+  float motor_response_prediction[MAX_MOTORS];   // Predicted motor response times
   float thrust_lag_compensation;        // Compensate for motor response lag
   
   // Adaptive motor characteristics
-  float motor_kv_values[4];            // Actual KV ratings per motor
-  float motor_resistance[4];           // Motor resistance for efficiency calc
+  float motor_kv_values[MAX_MOTORS];            // Actual KV ratings per motor
+  float motor_resistance[MAX_MOTORS];           // Motor resistance for efficiency calc
   bool battery_compensation_enabled;    // Compensate for battery voltage sag
 };
 
 class MotorControl {
 private:
   // Legacy PWM support
-  Servo motor1, motor2, motor3, motor4;
+  Servo motors[MAX_MOTORS];
   
   // Advanced protocol support
   EscConfig esc_config;
@@ -48,17 +48,17 @@ private:
   bool calibration_mode;
   
   // DShot support
-  uint32_t dshot_packet[4];
-  uint8_t dshot_buffer[4][16];  // 16 bits per motor
-  bool telemetry_request[4];
-  uint16_t motor_rpm[4];
-  uint8_t motor_temperature[4];
-  uint16_t motor_voltage[4];
-  uint16_t motor_current[4];
-  unsigned long motor_telemetry_last_update[4];
+  uint32_t dshot_packet[MAX_MOTORS];
+  uint8_t dshot_buffer[MAX_MOTORS][16];  // 16 bits per motor
+  bool telemetry_request[MAX_MOTORS];
+  uint16_t motor_rpm[MAX_MOTORS];
+  uint8_t motor_temperature[MAX_MOTORS];
+  uint16_t motor_voltage[MAX_MOTORS];
+  uint16_t motor_current[MAX_MOTORS];
+  unsigned long motor_telemetry_last_update[MAX_MOTORS];
   
   // For predictive control
-  uint16_t prev_rpm[4];
+  uint16_t prev_rpm[MAX_MOTORS];
   
   // Protocol-specific functions
   void output_pwm(int motor, int value);
@@ -132,11 +132,15 @@ public:
   void reverse_motor_direction(int motor);
   void enable_motor(int motor, bool enable);
   
+  // Direction utilities
+  void set_default_motor_directions();               // set dirs per FRAME_TYPE
+  bool validate_motor_directions(bool verbose=true); // true if all motors match expected
+  
   // Telemetry access
-  uint16_t get_motor_rpm(int motor) { return (motor >= 0 && motor < 4) ? motor_rpm[motor] : 0; }
-  uint8_t get_motor_temperature(int motor) { return (motor >= 0 && motor < 4) ? motor_temperature[motor] : 0; }
-  uint16_t get_motor_voltage(int motor) { return (motor >= 0 && motor < 4) ? motor_voltage[motor] : 0; }
-  uint16_t get_motor_current(int motor) { return (motor >= 0 && motor < 4) ? motor_current[motor] : 0; }
+  uint16_t get_motor_rpm(int motor) { return (motor >= 0 && motor < MOTOR_COUNT) ? motor_rpm[motor] : 0; }
+  uint8_t get_motor_temperature(int motor) { return (motor >= 0 && motor < MOTOR_COUNT) ? motor_temperature[motor] : 0; }
+  uint16_t get_motor_voltage(int motor) { return (motor >= 0 && motor < MOTOR_COUNT) ? motor_voltage[motor] : 0; }
+  uint16_t get_motor_current(int motor) { return (motor >= 0 && motor < MOTOR_COUNT) ? motor_current[motor] : 0; }
   
   // Status functions
   bool is_armed() { return motors_armed; }

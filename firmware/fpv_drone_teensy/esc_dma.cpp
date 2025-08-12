@@ -26,14 +26,14 @@ constexpr uint8_t FLEXPWM_MODULE = 3; // use FlexPWM3
 DMAChannel dmaTx;
 EscProtocol currentProto = ESC_PROTOCOL_DSHOT600;
 uint8_t motorCnt = 4;
-static uint16_t pulseBuffer[4][16]; // one 16-bit pattern per motor
-static uint8_t pins[4];
+static uint16_t pulseBuffer[MAX_MOTORS][16]; // one 16-bit pattern per motor
+static uint8_t pins[MAX_MOTORS];
 
 // ------------------- Telemetry capture structures -------------------
-static volatile uint32_t lastEdgeMicros[4] = {0};
-static volatile uint16_t pulseWidths[4][20]; // capture up to 20 pulses per packet
-static volatile uint8_t pulseCount[4] = {0};
-static volatile bool packetReady[4] = {false};
+static volatile uint32_t lastEdgeMicros[MAX_MOTORS] = {0};
+static volatile uint16_t pulseWidths[MAX_MOTORS][20]; // capture up to 20 pulses per packet
+static volatile uint8_t pulseCount[MAX_MOTORS] = {0};
+static volatile bool packetReady[MAX_MOTORS] = {false};
 
 static bool telemetry_enabled = false;  // set by requestTelemetry()
 

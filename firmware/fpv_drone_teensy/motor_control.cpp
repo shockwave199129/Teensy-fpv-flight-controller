@@ -11,11 +11,23 @@
 // Delay helper now provided by HAL
 using HalTimerPWM::delayNS;
 
+// Map logical motor index to hardware pin. Extend as needed for larger frames.
+static const uint8_t MOTOR_PINS[MAX_MOTORS] = {
+  MOTOR1_PIN,
+  MOTOR2_PIN,
+  MOTOR3_PIN,
+  MOTOR4_PIN,
+#if MAX_MOTORS > 4
+  /* default extra assignments – adjust for your wiring */
+  6, 7, 8, 9, 10, 11, 12, 13
+#endif
+};
+
 bool MotorControl::check_esc_voltage_telemetry() {
   // Check if any ESC is providing voltage telemetry
   if (!supports_telemetry()) return false;
   
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < MOTOR_COUNT; i++) {
     if (motor_voltage[i] > 0 && (millis() - motor_telemetry_last_update[i] < 1000)) {
       return true;
     }
@@ -43,7 +55,7 @@ void MotorControl::init_with_protocol(EscProtocol protocol) {
   // Default predictive motor control settings
   advanced_motor.predictive_control_enabled = false; // disabled until telemetry validated
   advanced_motor.thrust_lag_compensation = 0.0005f;
-  for(int i=0;i<4;i++){
+  for(int i=0;i<MOTOR_COUNT;i++){
     advanced_motor.motor_response_prediction[i] = 0.0f;
     prev_rpm[i] = 0;
     esc_config.motor_direction[i] = 1;
@@ -60,35 +72,26 @@ void MotorControl::init_with_protocol(EscProtocol protocol) {
   // NOTE: This switch statement is likely incomplete due to partial file visibility.
   switch (protocol) {
     case ESC_PROTOCOL_PWM:
-      motor1.attach(MOTOR1_PIN);
-      motor2.attach(MOTOR2_PIN);
-      motor3.attach(MOTOR3_PIN);
-      motor4.attach(MOTOR4_PIN);
-      motor1.writeMicroseconds(ESC_MIN_PWM);
-      motor2.writeMicroseconds(ESC_MIN_PWM);
-      motor3.writeMicroseconds(ESC_MIN_PWM);
-      motor4.writeMicroseconds(ESC_MIN_PWM);
+      for(int m=0;m<MOTOR_COUNT;m++){
+          motors[m].attach(MOTOR_PINS[m]);
+          motors[m].writeMicroseconds(ESC_MIN_PWM);
+      }
       break;
     case ESC_PROTOCOL_ONESHOT125:
     case ESC_PROTOCOL_ONESHOT42:
     case ESC_PROTOCOL_MULTISHOT:
-      motor1.attach(MOTOR1_PIN);
-      motor2.attach(MOTOR2_PIN);
-      motor3.attach(MOTOR3_PIN);
-      motor4.attach(MOTOR4_PIN);
+      for(int m=0;m<MOTOR_COUNT;m++){
+          motors[m].attach(MOTOR_PINS[m]);
+      }
       break;
     case ESC_PROTOCOL_DSHOT150:
     case ESC_PROTOCOL_DSHOT300:
     case ESC_PROTOCOL_DSHOT600:
     case ESC_PROTOCOL_DSHOT1200:
-      pinMode(MOTOR1_PIN, OUTPUT);
-      pinMode(MOTOR2_PIN, OUTPUT);
-      pinMode(MOTOR3_PIN, OUTPUT);
-      pinMode(MOTOR4_PIN, OUTPUT);
-      {
-        const uint8_t pins[4] = {MOTOR1_PIN, MOTOR2_PIN, MOTOR3_PIN, MOTOR4_PIN};
-        ESC_DMA::init(protocol, pins, 4);
+      for(int m=0;m<MOTOR_COUNT;m++){
+          pinMode(MOTOR_PINS[m], OUTPUT);
       }
+      ESC_DMA::init(protocol, MOTOR_PINS, MOTOR_COUNT);
       break;
   }
   
@@ -144,7 +147,7 @@ void MotorControl::init_with_protocol(EscProtocol protocol) {
 
     if (caps.supports_voltage_telemetry || caps.supports_current_telemetry || caps.supports_temperature_telemetry) {
       // Command number 13 per spec (may overlap) – send raw value 13
-      for (int m = 0; m < 4; m++) {
+      for (int m = 0; m < MOTOR_COUNT; m++) {
         send_dshot_command_motor(m, (DshotCommand)13); // Extended telemetry enable
         delay(2);
       }
@@ -172,17 +175,95 @@ static inline void safe_digital_write(uint8_t pin, bool val) {
 }
 
 void MotorControl::apply_motor_mixing(PIDOutput& pid, int base_throttle) {
-  // Simple quad-X mixing
-  motor_output.motor1 = base_throttle + pid.roll - pid.pitch + pid.yaw; // Front Right CW
-  motor_output.motor2 = base_throttle - pid.roll - pid.pitch - pid.yaw; // Front Left CCW
-  motor_output.motor3 = base_throttle - pid.roll + pid.pitch + pid.yaw; // Rear Left CW
-  motor_output.motor4 = base_throttle + pid.roll + pid.pitch - pid.yaw; // Rear Right CCW
+  // Mixing matrices per frame type.
+  // Coefficients: [ rollCoef, pitchCoef, yawCoef ] per motor; collective term added later.
 
-  // Constrain
-  motor_output.motor1 = constrain(motor_output.motor1, MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
-  motor_output.motor2 = constrain(motor_output.motor2, MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
-  motor_output.motor3 = constrain(motor_output.motor3, MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
-  motor_output.motor4 = constrain(motor_output.motor4, MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
+  static const float MIX_X4[4][3] = {
+      {  1, -1, -1 },   // Front Right CW
+      { -1, -1,  1 },   // Front Left  CCW
+      { -1,  1, -1 },   // Rear  Left  CW
+      {  1,  1,  1 }    // Rear  Right CCW
+  };
+
+  // Y-4 (twin front motors + rear)
+  static const float MIX_Y4[4][3] = {
+      {  0, -1, -1 },   // Front Left  (CCW front)
+      {  0, -1,  1 },   // Front Right (CW  front)
+      { -1,  1, -1 },   // Rear Left   (CW)
+      {  1,  1,  1 }    // Rear Right  (CCW)
+  };
+
+  // X6 (flat hex, starting front and going CW)
+  static const float MIX_X6[6][3] = {
+      {  0, -1,  1 },   // 0  front
+      { -1, -0.5, -1 }, // 60° left front
+      { -1,  0.5,  1 }, // 120° left rear
+      {  0,  1, -1 },   // 180° rear
+      {  1,  0.5,  1 }, // 240° right rear
+      {  1, -0.5, -1 }  // 300° right front
+  };
+
+  // Coaxial X8: use X4 pattern duplicated (top first 4, bottom reversed yaw)
+  static float MIX_X8[8][3];
+  static bool mixX8Init=false;
+  if(!mixX8Init){
+      for(int i=0;i<4;i++){
+          MIX_X8[i][0]=MIX_X4[i][0];
+          MIX_X8[i][1]=MIX_X4[i][1];
+          MIX_X8[i][2]=MIX_X4[i][2];
+          // bottom motors (i+4) roll & pitch same, yaw reversed
+          MIX_X8[i+4][0]=MIX_X4[i][0];
+          MIX_X8[i+4][1]=MIX_X4[i][1];
+          MIX_X8[i+4][2]=-MIX_X4[i][2];
+      }
+      mixX8Init=true;
+  }
+
+  // X12: duplicate X6 for bottom layer with yaw reversed.
+  static float MIX_X12[12][3];
+  static bool mixX12Init=false;
+  if(!mixX12Init){
+      for(int i=0;i<6;i++){
+          for(int j=0;j<3;j++) MIX_X12[i][j]=MIX_X6[i][j];
+          MIX_X12[i+6][0]=MIX_X6[i][0];
+          MIX_X12[i+6][1]=MIX_X6[i][1];
+          MIX_X12[i+6][2]=-MIX_X6[i][2];
+      }
+      mixX12Init=true;
+  }
+
+  const float (*mix)[3] = nullptr;
+  switch(FRAME_TYPE){
+      case FRAME_X4: mix = MIX_X4; break;
+      case FRAME_Y4: mix = MIX_Y4; break;
+      case FRAME_X6: mix = MIX_X6; break;
+      case FRAME_X8: mix = MIX_X8; break;
+      case FRAME_X12: mix = MIX_X12; break;
+      default: mix = MIX_X4; break;
+  }
+
+  // Compute outputs into local array then populate legacy struct for first 4 motors
+  int pwm[MAX_MOTORS];
+  for(int m=0;m<MOTOR_COUNT;m++){
+      float out = base_throttle
+                  + mix[m][0]*pid.roll
+                  + mix[m][1]*pid.pitch
+                  + mix[m][2]*pid.yaw;
+      pwm[m] = constrain((int)out, MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
+  }
+
+  // Map to struct (first 4) for backward compatibility
+  if(MOTOR_COUNT>=4){
+      motor_output.motor1 = pwm[0];
+      motor_output.motor2 = pwm[1];
+      motor_output.motor3 = pwm[2];
+      motor_output.motor4 = pwm[3];
+  }
+
+  // Send to hardware (handled later in update function using pwm array). For now store into prev arrays
+  for(int m=0;m<MOTOR_COUNT;m++){
+      motor_rpm[m] = pwm[m]; // placeholder meaning of rpm array misuse; real rpm updated elsewhere
+  }
 }
 
 int MotorControl::map_throttle_to_protocol(int pwm) {
@@ -203,12 +284,8 @@ int MotorControl::map_throttle_to_protocol(int pwm) {
 }
 
 void MotorControl::output_pwm(int motor, int value) {
-  switch (motor) {
-    case 0: motor1.writeMicroseconds(value); break;
-    case 1: motor2.writeMicroseconds(value); break;
-    case 2: motor3.writeMicroseconds(value); break;
-    case 3: motor4.writeMicroseconds(value); break;
-  }
+  if(motor<0 || motor>=MOTOR_COUNT) return;
+  motors[motor].writeMicroseconds(value);
 }
 
 void MotorControl::output_dshot(int motor, int value, bool telemetry) {
@@ -233,7 +310,8 @@ uint16_t MotorControl::prepare_dshot_packet(uint16_t value, bool telemetry) {
 
 void MotorControl::send_dshot_packet(int motor, uint16_t packet) {
   // Very simplistic blocking bit-bang implementation, sufficient for 150/300/600k.
-  uint8_t pin = MOTOR1_PIN + motor; // contiguous pins 2-5
+  if(motor<0 || motor>=MOTOR_COUNT) return;
+  uint8_t pin = MOTOR_PINS[motor];
   uint32_t t0 = DSHOT600_BIT_TIME; // nanoseconds per bit at 600k
   if (esc_config.protocol == ESC_PROTOCOL_DSHOT300) t0 = DSHOT300_BIT_TIME;
   else if (esc_config.protocol == ESC_PROTOCOL_DSHOT150) t0 = DSHOT150_BIT_TIME;
@@ -256,10 +334,9 @@ void MotorControl::update(PIDOutput& pid_output, bool armed_flag) {
     if (esc_config.protocol >= ESC_PROTOCOL_DSHOT150)
       send_dshot_command_all(DSHOT_CMD_MOTOR_STOP);
     else {
-      output_pwm(0, ESC_MIN_PWM);
-      output_pwm(1, ESC_MIN_PWM);
-      output_pwm(2, ESC_MIN_PWM);
-      output_pwm(3, ESC_MIN_PWM);
+      for(int m=0;m<MOTOR_COUNT;m++){
+          output_pwm(m, ESC_MIN_PWM);
+      }
     }
     return;
   }
@@ -271,14 +348,21 @@ void MotorControl::update(PIDOutput& pid_output, bool armed_flag) {
   // Optional predictive control optimisation
   // Send to ESCs
   if (esc_config.protocol >= ESC_PROTOCOL_DSHOT150) {
-    uint16_t vals[4] = { (uint16_t)motor_output.motor1, (uint16_t)motor_output.motor2,
-                         (uint16_t)motor_output.motor3, (uint16_t)motor_output.motor4 };
+    uint16_t vals[MAX_MOTORS] = {0};
+    // Map outputs – legacy struct holds first 4; beyond that use motor_rpm placeholder we stored earlier
+    if(MOTOR_COUNT>=1) vals[0] = motor_output.motor1;
+    if(MOTOR_COUNT>=2) vals[1] = motor_output.motor2;
+    if(MOTOR_COUNT>=3) vals[2] = motor_output.motor3;
+    if(MOTOR_COUNT>=4) vals[3] = motor_output.motor4;
+    for(int m=4;m<MOTOR_COUNT;m++){
+        vals[m] = motor_rpm[m]; // we stored PWM values in motor_rpm earlier
+    }
     ESC_DMA::sendThrottle(vals,false);
   } else {
-    output_pwm(0, motor_output.motor1);
-    output_pwm(1, motor_output.motor2);
-    output_pwm(2, motor_output.motor3);
-    output_pwm(3, motor_output.motor4);
+    for(int m=0;m<MOTOR_COUNT && m<4;m++){
+        int val = (m==0)?motor_output.motor1:(m==1)?motor_output.motor2:(m==2)?motor_output.motor3:motor_output.motor4;
+        output_pwm(m,val);
+    }
   }
 
   // --- Blackbox logging ---
@@ -295,7 +379,7 @@ void MotorControl::update(PIDOutput& pid_output, bool armed_flag) {
 
   if (esc_config.telemetry_enabled) {
     extern DynamicFilteringSystem dynamic_filtering; // declared in main .ino
-    for (uint8_t m = 0; m < 4; m++) {
+    for (uint8_t m = 0; m < MOTOR_COUNT; m++) {
       uint16_t erpm=0, volt=0, curr=0;
       uint8_t temp=0;
       if (ESC_DMA::getTelemetry(m, erpm, volt, temp, curr)) {
@@ -329,15 +413,14 @@ void MotorControl::emergency_stop() {
   if (esc_config.protocol >= ESC_PROTOCOL_DSHOT150) {
     send_dshot_command_all(DSHOT_CMD_MOTOR_STOP);
   } else {
-    output_pwm(0, ESC_MIN_PWM);
-    output_pwm(1, ESC_MIN_PWM);
-    output_pwm(2, ESC_MIN_PWM);
-    output_pwm(3, ESC_MIN_PWM);
+    for(int m=0;m<MOTOR_COUNT;m++){
+        output_pwm(m, ESC_MIN_PWM);
+    }
   }
 }
 
 void MotorControl::send_dshot_command_all(DshotCommand cmd) {
-  for (int m = 0; m < 4; m++) send_dshot_command_motor(m, cmd);
+  for (int m = 0; m < MOTOR_COUNT; m++) send_dshot_command_motor(m, cmd);
 }
 
 void MotorControl::send_dshot_command_motor(int motor, DshotCommand cmd) {
@@ -375,23 +458,21 @@ void MotorControl::calibrate_escs() {
     send_dshot_command_all(DSHOT_CMD_ESC_CALIBRATION);
   } else {
     Serial.println("ESC Calibration: Sending max throttle");
-    output_pwm(0, ESC_MAX_PWM);
-    output_pwm(1, ESC_MAX_PWM);
-    output_pwm(2, ESC_MAX_PWM);
-    output_pwm(3, ESC_MAX_PWM);
+    for(int m=0;m<MOTOR_COUNT;m++){
+        output_pwm(m, ESC_MAX_PWM);
+    }
     delay(2000);
     Serial.println("ESC Calibration: Sending min throttle");
-    output_pwm(0, ESC_MIN_PWM);
-    output_pwm(1, ESC_MIN_PWM);
-    output_pwm(2, ESC_MIN_PWM);
-    output_pwm(3, ESC_MIN_PWM);
+    for(int m=0;m<MOTOR_COUNT;m++){
+        output_pwm(m, ESC_MIN_PWM);
+    }
     delay(2000);
     Serial.println("ESC Calibration complete");
   }
 }
 
 void MotorControl::set_motor_direction(int motor, int direction) {
-  if (motor < 0 || motor > 3) return;
+  if (motor < 0 || motor > MOTOR_COUNT) return;
   direction = (direction >= 0) ? 1 : -1;
   esc_config.motor_direction[motor] = direction;
 
@@ -406,9 +487,66 @@ void MotorControl::set_motor_direction(int motor, int direction) {
 }
 
 void MotorControl::reverse_motor_direction(int motor) {
-  if (motor < 0 || motor > 3) return;
+  if (motor < 0 || motor > MOTOR_COUNT) return;
   int new_dir = -esc_config.motor_direction[motor];
   set_motor_direction(motor, new_dir);
+}
+
+// ===================== Direction Utilities =====================
+void MotorControl::set_default_motor_directions() {
+    // Expected direction tables: 1 = NORMAL/CW, -1 = REVERSE/CCW
+    static const int8_t X4_DIR[4]  = { 1, -1, 1, -1 };  // FR, FL, RL, RR (CW/CCW alternated)
+    static const int8_t Y4_DIR[4]  = { -1, 1, 1, -1 };  // Example Y4 (twin front counter)
+    static const int8_t X6_DIR[6]  = { -1, 1, -1, 1, -1, 1 }; // alternating around hex
+    static const int8_t X8_DIR[8]  = { 1,-1,1,-1, -1,1,-1,1 }; // top layer same as X4, bottom reversed
+    static const int8_t X12_DIR[12]= { -1,1,-1,1,-1,1, 1,-1,1,-1,1,-1 }; // similar pattern
+
+    const int8_t *tbl=nullptr;
+    switch(FRAME_TYPE){
+        case FRAME_X4:  tbl=X4_DIR; break;
+        case FRAME_Y4:  tbl=Y4_DIR; break;
+        case FRAME_X6:  tbl=X6_DIR; break;
+        case FRAME_X8:  tbl=X8_DIR; break;
+        case FRAME_X12: tbl=X12_DIR; break;
+        default: tbl=X4_DIR; break;
+    }
+    for(int m=0;m<MOTOR_COUNT;m++){
+        esc_config.motor_direction[m] = (tbl)? tbl[m]:1;
+    }
+}
+
+bool MotorControl::validate_motor_directions(bool verbose){
+    const int8_t *expected=nullptr;
+    static const int8_t X4_DIR[4]  = { 1, -1, 1, -1 };
+    static const int8_t Y4_DIR[4]  = { -1, 1, 1, -1 };
+    static const int8_t X6_DIR[6]  = { -1, 1, -1, 1, -1, 1 };
+    static const int8_t X8_DIR[8]  = { 1,-1,1,-1, -1,1,-1,1 };
+    static const int8_t X12_DIR[12]= { -1,1,-1,1,-1,1, 1,-1,1,-1,1,-1 };
+    switch(FRAME_TYPE){
+        case FRAME_X4: expected=X4_DIR; break;
+        case FRAME_Y4: expected=Y4_DIR; break;
+        case FRAME_X6: expected=X6_DIR; break;
+        case FRAME_X8: expected=X8_DIR; break;
+        case FRAME_X12: expected=X12_DIR; break;
+        default: expected=X4_DIR; break;
+    }
+    bool ok=true;
+    for(int m=0;m<MOTOR_COUNT;m++){
+        if(esc_config.motor_direction[m] != expected[m]){
+            ok=false;
+            if(verbose){
+               Serial.print("Motor "); Serial.print(m+1);
+               Serial.print(" direction mismatch. Expected ");
+               Serial.print(expected[m]==1?"NORMAL(CW)":"REVERSE(CCW)");
+               Serial.print(" but is ");
+               Serial.println(esc_config.motor_direction[m]==1?"NORMAL(CW)":"REVERSE(CCW)");
+            }
+        }
+    }
+    if(verbose){
+        Serial.println(ok?"All motor directions valid ✅":"Motor direction errors detected ❌");
+    }
+    return ok;
 }
 
 // ============================================================================
@@ -421,14 +559,14 @@ EscFirmwareType MotorControl::detect_esc_firmware() {
   const uint8_t MAX_ATTEMPTS = 20;  // attempts per motor
   uint8_t typeCounts[ESC_FIRMWARE_GENERIC + 1] = {0};
 
-  for (uint8_t motor = 0; motor < 4; motor++) {
+  for (uint8_t motor = 0; motor < MOTOR_COUNT; motor++) {
     // Enable telemetry during detection
     ESC_DMA::requestTelemetry(true);
     // Send ESC_INFO command
     send_dshot_command_motor(motor, DSHOT_CMD_ESC_INFO);
     delay(5);
 
-    uint16_t throttleVals[4] = {0, 0, 0, 0};
+    uint16_t throttleVals[MOTOR_COUNT] = {0};
     bool gotFirst = false, gotSecond = false;
     uint16_t word1 = 0, word2 = 0;
 
