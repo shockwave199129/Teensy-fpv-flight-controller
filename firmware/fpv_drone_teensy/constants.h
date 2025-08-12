@@ -330,4 +330,41 @@
 #define GPS_RESCUE_CLIMB_RATE        3.0f
 #define TURTLE_MODE_THROTTLE_LIMIT   0.8f
 
+// ------------- FRAME / MOTOR CONFIGURATION -----------------
+// Supported multirotor geometries (extend as needed)
+enum FrameType {
+  FRAME_X4 = 0,   // Standard X quadcopter (default)
+  FRAME_Y4,       // Y-4 configuration (front twin motors)
+  FRAME_X6,       // Hexacopter (flat / X-6)
+  FRAME_X8,       // Coaxial octocopter ("X-4 × 2")
+  FRAME_X12       // Coaxial dodecacopter (hex × 2)
+};
+
+// Select active frame type at compile-time.  Users can override this via
+// compiler flags (e.g. -DFRAME_TYPE=FRAME_X6) or by defining it earlier in
+// another header.
+#ifndef FRAME_TYPE
+#define FRAME_TYPE FRAME_X4
+#endif
+
+#define MAX_MOTORS 12  // hard safety limit – do not exceed without audit
+
+// Derive the actual motor count from the selected frame.
+#if (FRAME_TYPE == FRAME_X4) || (FRAME_TYPE == FRAME_Y4)
+  #define MOTOR_COUNT 4
+#elif (FRAME_TYPE == FRAME_X6)
+  #define MOTOR_COUNT 6
+#elif (FRAME_TYPE == FRAME_X8)
+  #define MOTOR_COUNT 8
+#elif (FRAME_TYPE == FRAME_X12)
+  #define MOTOR_COUNT 12
+#else
+  #error "Unknown FRAME_TYPE selected – please choose a valid FrameType enum"
+#endif
+
+// Back-compatibility: legacy code may still reference PROPELLER_COUNT.
+#ifndef PROPELLER_COUNT
+  #define PROPELLER_COUNT MOTOR_COUNT
+#endif
+
 #endif // CONSTANTS_H 
