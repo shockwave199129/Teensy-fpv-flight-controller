@@ -6,44 +6,38 @@ A complete FPV drone flight controller firmware and desktop configuration applic
 
 This project implements a **professional-grade flight controller** for quadcopter drones using the Teensy 4.1 microcontroller, featuring **Phase 1 & 2 stability enhancements** and a modern **desktop configuration application** built with Electron and React.js.
 
-## ✨ Key Features
+
+## ✨ Key Features (Code-Driven Summary)
 
 **🚁 Firmware (Teensy 4.1):**
-- ✅ **Universal ESC Protocol Support**: PWM, OneShot125/42, Multishot, DShot150/300/600/1200
-- ✅ **ESC Firmware Compatibility**: BLHeli_S, BLHeli_32, BlueJay, AM32, ESCape32, Generic
-- ✅ **DShot Telemetry**: Real-time RPM, temperature, voltage, current monitoring  
-- ✅ **On-board Blackbox SD Logging** (auto-enabled when SD card present, disabled while USB connected)
-- ✅ **Bidirectional DShot**: 3D mode support with motor direction control
-- ✅ **Multiple RC Protocols**: PPM, iBUS, SBUS, ExpressLRS (ELRS)
-- ✅ **Comprehensive Sensor Support**: 9 IMU types, 7 magnetometer types, 5 barometer types
-- ✅ **Dual IMU Sensor Fusion** with automatic failover and cross-validation
-- ✅ **Advanced Mahony AHRS Filter** for superior attitude estimation
-- ✅ **Cascaded PID Control** with rate + angle loops for rock-solid stability
-- ✅ **Dynamic Adaptive Filtering System**:
-  - FFT-based spectral analysis
-  - Auto-tuning notch filters for motor noise
-  - Flight phase-based filter adjustment
-  - Vibration detection and compensation
-- ✅ **Advanced Flight Modes**:
-  - Acro+ (Rate mode with auto-recovery)
-  - Sport mode (High performance with increased rates)
-  - Cinematic mode (Ultra-smooth for video recording)
-  - GPS Rescue (Advanced RTH with obstacle awareness)
-  - Turtle mode (Upside-down crash recovery)
-  - Launch assist (Automatic takeoff detection)
-  - Landing assist (Automatic landing detection)
-- ✅ **Sensor Redundancy System** (NEW):
-  - Automatic sensor health monitoring and failover
-  - Synthetic sensor generation (GPS/Magnetometer/Barometer)
-  - Adaptive flight characteristics based on sensor availability
-  - Multiple flight capability levels (Full/Degraded/Minimal/Emergency)
-  - Real-time sensor quality assessment and validation
-- ✅ **Optical Flow Positioning** (PMW3901/PAA5100/ADNS3080 support)
-- ✅ **Intelligent Calibration System** with quality assessment
-- ✅ **Enhanced Channel Mapping**: 19 functions, 3 rate profiles with expo curves
-- ✅ **RGB LED Feedback System** with status indicators
-- ✅ **2kHz Control Loop** for ultra-responsive flight
-- ✅ **Comprehensive Safety Systems** with calibration-based arming prevention
+- **Universal ESC Protocol Support:** PWM, OneShot125/42, Multishot, DShot150/300/600/1200
+- **ESC Firmware Compatibility:** BLHeli_S, BLHeli_32, BlueJay, AM32, ESCape32, Generic
+- **DMA-Based Motor Control:** High-speed DShot signal generation and telemetry via DMA
+- **Bidirectional DShot & Motor Direction Control:** 3D mode, direction commands, ESC beep, LED control
+- **DShot Telemetry:** Real-time RPM, temperature, voltage, current monitoring
+- **ESC Firmware Auto-Detection:** Detects and adapts to connected ESC firmware
+- **Advanced Motor Features:** Predictive control, RPM-based dynamic filtering, health monitoring, battery compensation, individual scaling
+- **Multiple RC Protocols:** PPM, iBUS, SBUS, ExpressLRS (ELRS) with ISR-based parsing for low latency
+- **Enhanced Channel Mapping:** 19 functions, 3 rate profiles, expo curves, failsafe, arming logic
+- **Dual IMU Sensor Fusion:** Automatic failover, cross-validation, adaptive tuning
+- **Sensor Redundancy System:** Health monitoring, synthetic sensor generation (GPS, magnetometer, barometer), adaptive flight characteristics, failover, capability levels
+- **Comprehensive Sensor Support:** 9 IMU types, 7 magnetometer types, 5 barometer types, GPS, sonar, optical flow
+- **Optical Flow Positioning:** PMW3901, PAA5100, ADNS3080 support, dead-reckoning fallback for GPS
+- **Advanced Mahony AHRS Filter:** Quaternion-based attitude estimation, adaptive fusion
+- **Extended Kalman Filter (EKF):** Position/velocity fusion from IMU, GPS, optical flow
+- **Cascaded PID Control:** Rate + angle loops, adaptive gain scheduling, feedforward, setpoint weighting, harmonic compensation, flight phase detection
+- **Dynamic Adaptive Filtering System:** FFT-based gyro analysis, auto-tuning notch filters, vibration detection, RPM feed-forward notch tuning
+- **Advanced Flight Modes:** Acro+, Sport, Cinematic, GPS Rescue, Turtle, Launch/Land Assist, RTH, Headless, Altitude/Position Hold
+- **Safety Functions:** Watchdog timers, failsafe, emergency stop, calibration-based arming prevention, battery/RC/GPS checks, LED/audio feedback
+- **Calibration System:** 6-position accelerometer, magnetometer (figure-8, timer), ESC, RC, persistent storage with CRC validation
+- **Blackbox Logging:** SD card and serial logging of flight data, events, and system status
+- **LED Control:** RGB LED patterns, status indication, error/warning feedback, custom patterns
+- **Navigation Helpers:** Distance/bearing calculations, heading control
+- **Sensor Detection & Diagnostics:** Automatic I2C scan, sensor presence reporting, diagnostics
+- **Modular Firmware Architecture:** Classes for flight modes, sensor fusion, filtering, logging, safety, communication, hardware abstraction
+
+**💻 Desktop Application (Electron + React):**
+...existing code...
 
 **💻 Desktop Application (Electron + React):**
 - ✅ **Cross-platform** support (Windows, macOS, Linux)
