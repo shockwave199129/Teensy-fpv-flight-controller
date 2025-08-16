@@ -36,8 +36,6 @@ This project implements a **professional-grade flight controller** for quadcopte
 - **Sensor Detection & Diagnostics:** Automatic I2C scan, sensor presence reporting, diagnostics
 - **Modular Firmware Architecture:** Classes for flight modes, sensor fusion, filtering, logging, safety, communication, hardware abstraction
 
-**💻 Desktop Application (Electron + React):**
-...existing code...
 
 **💻 Desktop Application (Electron + React):**
 - ✅ **Cross-platform** support (Windows, macOS, Linux)
