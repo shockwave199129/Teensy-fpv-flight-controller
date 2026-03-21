@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import SerialConnection from './components/SerialConnection';
 import Dashboard from './pages/Dashboard';
@@ -16,15 +16,23 @@ import DynamicFiltering from './pages/DynamicFiltering';
 import SensorRedundancy from './pages/SensorRedundancy';
 import CLI from './pages/CLI';
 import AdvancedPerformance from './pages/AdvancedPerformance';
+import ModesConfig from './pages/ModesConfig';
+import Blackbox from './pages/Blackbox';
+import GPSMap from './pages/GPSMap';
+import OSDConfig from './pages/OSDConfig';
+import BoardConfig from './pages/BoardConfig';
 
 function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [activeSection, setActiveSection] = useState('setup');
   const [telemetry, setTelemetry] = useState({});
+  const configCollectorRef = useRef(null);
 
   useEffect(() => {
-    // Listen for telemetry data
     const handleSerialData = (event, data) => {
+      if (configCollectorRef.current) {
+        configCollectorRef.current.push(data);
+      }
       try {
         if (data.includes('"telemetry":')) {
           const telemetryData = JSON.parse(data);
@@ -49,6 +57,83 @@ function App() {
       } catch (error) {
         console.error('Error sending command:', error);
       }
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    configCollectorRef.current = [];
+    const commands = ['get pid', 'get config', 'get esc', 'get rc'];
+    for (const cmd of commands) {
+      await sendCommand(cmd);
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const collectedData = configCollectorRef.current;
+    configCollectorRef.current = null;
+
+    const configObj = {
+      timestamp: new Date().toISOString(),
+      version: '1.0',
+      rawResponses: collectedData
+    };
+
+    collectedData.forEach(line => {
+      try {
+        const parsed = JSON.parse(line);
+        Object.assign(configObj, parsed);
+      } catch (e) {
+        // Non-JSON responses are preserved in rawResponses
+      }
+    });
+
+    try {
+      const result = await window.electronAPI.saveConfig(configObj);
+      if (result.success) {
+        alert(`Configuration saved to ${result.path}`);
+      }
+    } catch (error) {
+      console.error('Error saving config:', error);
+      alert('Error saving configuration file.');
+    }
+  };
+
+  const handleLoadConfig = async () => {
+    try {
+      const result = await window.electronAPI.loadConfig();
+      if (!result.success) return;
+
+      const config = result.config;
+
+      if (config.pid) {
+        const p = config.pid;
+        if (p.roll) await sendCommand(`set pid roll ${p.roll.p} ${p.roll.i} ${p.roll.d}`);
+        if (p.pitch) await sendCommand(`set pid pitch ${p.pitch.p} ${p.pitch.i} ${p.pitch.d}`);
+        if (p.yaw) await sendCommand(`set pid yaw ${p.yaw.p} ${p.yaw.i} ${p.yaw.d}`);
+      }
+
+      if (config.config) {
+        for (const [key, value] of Object.entries(config.config)) {
+          await sendCommand(`set ${key} ${value}`);
+        }
+      }
+
+      if (config.esc) {
+        for (const [key, value] of Object.entries(config.esc)) {
+          await sendCommand(`set esc_${key} ${value}`);
+        }
+      }
+
+      if (config.rc) {
+        for (const [key, value] of Object.entries(config.rc)) {
+          await sendCommand(`set rc_${key} ${value}`);
+        }
+      }
+
+      alert(`Configuration loaded from ${result.path}`);
+    } catch (error) {
+      console.error('Error loading config:', error);
+      alert('Error loading configuration file.');
     }
   };
 
@@ -133,7 +218,9 @@ function App() {
         { path: '/safety', name: 'Safety Status', icon: '🛡️', priority: 'high' },
         { path: '/calibration-wizard', name: 'Calibration Wizard', icon: '🧙‍♂️', priority: 'high' },
         { path: '/calibration', name: 'Sensor Calibration', icon: '📏', priority: 'high' },
-        { path: '/system', name: 'System Info', icon: 'ℹ️' }
+        { path: '/system', name: 'System Info', icon: 'ℹ️' },
+        { path: '/board', name: 'Board Config', icon: '🔩' },
+        { path: '/gps', name: 'GPS Map', icon: '🗺️' }
       ]
     },
     basic: {
@@ -143,7 +230,8 @@ function App() {
         { path: '/', name: 'Dashboard', icon: '📊' },
         { path: '/receiver', name: 'RC Receiver', icon: '📡' },
         { path: '/motors', name: 'Motor Config', icon: '🔧' },
-        { path: '/leds', name: 'LED Config', icon: '💡' }
+        { path: '/leds', name: 'LED Config', icon: '💡' },
+        { path: '/osd', name: 'OSD Layout', icon: '🖥️' }
       ]
     },
     flight: {
@@ -151,7 +239,8 @@ function App() {
       icon: '✈️',
       items: [
         { path: '/pid', name: 'PID Tuning', icon: '📈' },
-        { path: '/flight-modes', name: 'Flight Modes', icon: '🛩️' }
+        { path: '/flight-modes', name: 'Flight Modes', icon: '🛩️' },
+        { path: '/modes', name: 'Modes & AUX', icon: '🎛️' }
       ]
     },
     sensors: {
@@ -168,7 +257,8 @@ function App() {
       icon: '🔧',
       items: [
         { path: '/cli', name: 'Command Line Interface', icon: '💻', priority: 'high' },
-        { path: '/advanced-performance', name: 'Advanced Performance', icon: '📊', priority: 'high' }
+        { path: '/advanced-performance', name: 'Advanced Performance', icon: '📊', priority: 'high' },
+        { path: '/blackbox', name: 'Blackbox Logs', icon: '📦' }
       ]
     }
   };
@@ -308,6 +398,24 @@ function App() {
                 <div>✓ Real-time Warning System</div>
               </div>
             </div>
+
+            {/* Save/Load Configuration */}
+            <div className="mt-6 space-y-2">
+              <button
+                onClick={handleSaveConfig}
+                className="w-full flex items-center justify-center p-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
+              >
+                <span className="mr-2">💾</span>
+                Save Config to File
+              </button>
+              <button
+                onClick={handleLoadConfig}
+                className="w-full flex items-center justify-center p-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium"
+              >
+                <span className="mr-2">📂</span>
+                Load Config from File
+              </button>
+            </div>
           </div>
         </div>
 
@@ -388,6 +496,31 @@ function App() {
             <Route path="/advanced-performance" element={
               <ConnectionGuard>
                 <AdvancedPerformance sendCommand={sendCommand} connected={isConnected} />
+              </ConnectionGuard>
+            } />
+            <Route path="/modes" element={
+              <ConnectionGuard>
+                <ModesConfig sendCommand={sendCommand} connected={isConnected} />
+              </ConnectionGuard>
+            } />
+            <Route path="/blackbox" element={
+              <ConnectionGuard>
+                <Blackbox sendCommand={sendCommand} connected={isConnected} />
+              </ConnectionGuard>
+            } />
+            <Route path="/gps" element={
+              <ConnectionGuard>
+                <GPSMap sendCommand={sendCommand} connected={isConnected} />
+              </ConnectionGuard>
+            } />
+            <Route path="/osd" element={
+              <ConnectionGuard>
+                <OSDConfig sendCommand={sendCommand} connected={isConnected} />
+              </ConnectionGuard>
+            } />
+            <Route path="/board" element={
+              <ConnectionGuard>
+                <BoardConfig sendCommand={sendCommand} connected={isConnected} />
               </ConnectionGuard>
             } />
             {/* Catch all route - redirect to dashboard if connected */}

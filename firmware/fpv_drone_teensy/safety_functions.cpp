@@ -22,14 +22,13 @@ BatteryStatus get_enhanced_battery_status() {
   int raw_current = analogRead(CURRENT_SENSOR_PIN);
   status.current = raw_current * CURRENT_SCALE;
   
-  // Calculate percentage (simplified for 3S LiPo)
-  float min_voltage = 9.9f; // 3.3V per cell * 3 cells
-  float max_voltage = 12.6f; // 4.2V per cell * 3 cells
+  float min_voltage = BATTERY_VOLTAGE_PER_CELL_CRITICAL * BATTERY_CELL_COUNT;
+  float max_voltage = 4.2f * BATTERY_CELL_COUNT;
   status.percentage = constrain((status.voltage - min_voltage) / (max_voltage - min_voltage) * 100.0f, 0.0f, 100.0f);
   
-  // Set warning flags
-  status.low_voltage_warning = (status.voltage < 11.1f); // 3.7V per cell
-  status.critical_voltage = (status.voltage < 10.5f); // 3.5V per cell
+  // Use unified thresholds from constants.h
+  status.low_voltage_warning = (status.voltage < LOW_VOLTAGE_THRESHOLD);
+  status.critical_voltage = (status.voltage < CRITICAL_VOLTAGE_THRESHOLD);
   
   status.remaining_capacity_mah = status.percentage * 2200.0f / 100.0f; // Assume 2200mAh battery
   status.last_update = millis();
@@ -144,6 +143,38 @@ bool enhanced_safety_check_for_arming_with_feedback() {
   if (!critical_sensor_check_with_feedback()) {
     safe_to_arm = false;
     safety_issues += "- Critical sensor failure\n";
+  }
+  
+  // 2b. RC signal must be valid
+  extern RcData rc_data;
+  if (!rc_data.signal_valid) {
+    safe_to_arm = false;
+    safety_issues += "- RC signal not valid\n";
+  }
+  
+  // 2c. Throttle must be at minimum
+  if (rc_data.throttle > ARM_THROTTLE_THRESHOLD) {
+    safe_to_arm = false;
+    safety_issues += "- Throttle not at minimum\n";
+  }
+  
+  // 2d. Aircraft must be approximately level (< 10 degrees tilt)
+  extern SensorData sensor_data;
+  if (fabsf(sensor_data.roll) > 10.0f || fabsf(sensor_data.pitch) > 10.0f) {
+    safe_to_arm = false;
+    safety_issues += "- Aircraft not level (tilt > 10 deg)\n";
+  }
+  
+  // 2e. Barometer health check
+  if (sensor_data.baro.healthy && (millis() - sensor_data.baro.last_update > BARO_TIMEOUT_MS)) {
+    safe_to_arm = false;
+    safety_issues += "- Barometer data stale\n";
+  }
+  
+  // 2f. Magnetometer health check (if present)
+  if (sensor_data.mag.healthy && (millis() - sensor_data.mag.last_update > MAG_TIMEOUT_MS)) {
+    safe_to_arm = false;
+    safety_issues += "- Magnetometer data stale\n";
   }
   
   // 3. Check GPS requirements if GPS functions are configured
@@ -356,11 +387,13 @@ void handle_rc_signal_loss() {
     
     // Check if GPS RTH is possible
     if (is_gps_functionality_available()) {
-      Serial.println("Activating GPS Return to Home");
-      // Would activate RTH mode
+      extern FlightModes flight_modes;
+      extern SensorData sensor_data_global;
+      extern RcData rc_data_global;
+      flight_modes.return_to_home(sensor_data_global, rc_data_global);
     } else {
-      Serial.println("No GPS - Activating altitude hold and slow descent");
-      // Would activate safe descent mode
+      Serial.println("No GPS - Activating emergency altitude descent");
+      emergency_altitude_descent();
     }
   } else {
     // Not armed - just alert user
@@ -374,23 +407,128 @@ void handle_rc_signal_loss() {
 }
 
 void emergency_altitude_descent() {
-  Serial.println("Emergency altitude descent initiated");
-  // Implementation for emergency descent
+  extern MotorControl motor_control;
+  extern LEDControl led_control;
+
+  static uint16_t descent_throttle = 1400;
+  static bool descent_active = false;
+
+  if (!descent_active) {
+    Serial.println("Emergency altitude descent initiated");
+    descent_throttle = 1400;
+    descent_active = true;
+  }
+
+  led_control.set_status(LED_ERROR);
+  tone(BEEPER_PIN, 2000, 50);
+
+  if (descent_throttle > 1050) {
+    descent_throttle -= 2;
+    PIDOutput descent_pid = {0.0f, 0.0f, 0.0f, (float)descent_throttle};
+    motor_control.update(descent_pid, true);
+  } else {
+    Serial.println("Emergency descent complete - disarming");
+    motor_control.disarm();
+    descent_active = false;
+    descent_throttle = 1400;
+    noTone(BEEPER_PIN);
+  }
 }
 
 // Additional missing functions for communication.cpp
 bool perform_gyro_calibration() {
-  Serial.println("Starting gyro calibration...");
-  // Simplified gyro calibration
-  delay(3000); // Simulate calibration time
+  extern CalibrationData calibration_data;
+  Serial.println("Starting gyro calibration - keep vehicle still...");
+
+  float sum[3] = {0.0f, 0.0f, 0.0f};
+  const int NUM_SAMPLES = 500;
+  int valid_samples = 0;
+
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    IMUData imu_sample;
+    if (read_imu_data(&imu_sample)) {
+      sum[0] += imu_sample.gyro_x;
+      sum[1] += imu_sample.gyro_y;
+      sum[2] += imu_sample.gyro_z;
+      valid_samples++;
+    }
+    delay(2);
+  }
+
+  if (valid_samples < NUM_SAMPLES / 2) {
+    Serial.println("Gyro calibration FAILED - insufficient valid samples");
+    return false;
+  }
+
+  calibration_data.gyro_offsets[0] = sum[0] / valid_samples;
+  calibration_data.gyro_offsets[1] = sum[1] / valid_samples;
+  calibration_data.gyro_offsets[2] = sum[2] / valid_samples;
+  calibration_data.gyro_calibrated = true;
+  calibration_data.calibration_timestamp = millis();
+
+  if (!CalibrationStorage::save(calibration_data)) {
+    Serial.println("Gyro calibration save FAILED");
+    return false;
+  }
+
+  Serial.print("Gyro offsets: ");
+  Serial.print(calibration_data.gyro_offsets[0], 4);
+  Serial.print(", ");
+  Serial.print(calibration_data.gyro_offsets[1], 4);
+  Serial.print(", ");
+  Serial.println(calibration_data.gyro_offsets[2], 4);
   Serial.println("Gyro calibration completed");
   return true;
 }
 
 bool perform_accelerometer_calibration() {
-  Serial.println("Starting accelerometer calibration...");
-  // Simplified accelerometer calibration
-  delay(5000); // Simulate calibration time
+  extern CalibrationData calibration_data;
+  Serial.println("Starting accelerometer calibration - keep vehicle level and still...");
+
+  float sum[3] = {0.0f, 0.0f, 0.0f};
+  const int NUM_SAMPLES = 500;
+  int valid_samples = 0;
+
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    IMUData imu_sample;
+    if (read_imu_data(&imu_sample)) {
+      sum[0] += imu_sample.accel_x;
+      sum[1] += imu_sample.accel_y;
+      sum[2] += imu_sample.accel_z;
+      valid_samples++;
+    }
+    delay(2);
+  }
+
+  if (valid_samples < NUM_SAMPLES / 2) {
+    Serial.println("Accelerometer calibration FAILED - insufficient valid samples");
+    return false;
+  }
+
+  calibration_data.accel_offsets[0] = sum[0] / valid_samples;
+  calibration_data.accel_offsets[1] = sum[1] / valid_samples;
+  calibration_data.accel_offsets[2] = (sum[2] / valid_samples) - 9.81f;
+
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      calibration_data.accel_scale_matrix[i][j] = (i == j) ? 1.0f : 0.0f;
+    }
+  }
+
+  calibration_data.accel_calibrated = true;
+  calibration_data.calibration_timestamp = millis();
+
+  if (!CalibrationStorage::save(calibration_data)) {
+    Serial.println("Accelerometer calibration save FAILED");
+    return false;
+  }
+
+  Serial.print("Accel offsets: ");
+  Serial.print(calibration_data.accel_offsets[0], 4);
+  Serial.print(", ");
+  Serial.print(calibration_data.accel_offsets[1], 4);
+  Serial.print(", ");
+  Serial.println(calibration_data.accel_offsets[2], 4);
   Serial.println("Accelerometer calibration completed");
   return true;
 }

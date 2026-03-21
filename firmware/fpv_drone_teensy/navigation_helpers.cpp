@@ -1,4 +1,5 @@
 #include "navigation_helpers.h"
+#include "config.h"
 #include <math.h>
 
 namespace {
@@ -25,8 +26,15 @@ float bearing_to(float lat1, float lon1, float lat2, float lon2) {
 }
 
 void set_nav_heading(float bearing_deg) {
-    // Placeholder – in real firmware this would feed into a yaw/PID autopilot.
-    Serial.print("Nav heading set to "); Serial.println(bearing_deg);
+    extern SensorData sensor_data;
+    extern RcData rc_data_global;
+
+    float yaw_error = bearing_deg - sensor_data.yaw;
+    while (yaw_error > 180.0f) yaw_error -= 360.0f;
+    while (yaw_error < -180.0f) yaw_error += 360.0f;
+
+    float yaw_correction = constrain(yaw_error * 2.5f, -500.0f, 500.0f);
+    rc_data_global.yaw = 1500 + (int)yaw_correction;
 }
 
 } // namespace NavigationHelpers 

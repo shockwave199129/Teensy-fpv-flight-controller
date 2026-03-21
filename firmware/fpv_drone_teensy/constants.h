@@ -287,9 +287,12 @@
 #define MAX_THRUST_TO_WEIGHT_RATIO 3.0f      // Maximum thrust-to-weight ratio
 
 // Flying style preferences (user tunable)
-#define FLYING_STYLE_SPORT                   // SPORT, CINEMATIC, RACE, BEGINNER
-#define AGGRESSIVENESS_LEVEL 1.2f            // 0.1-2.0 (conservative to aggressive)
-#define SMOOTHNESS_LEVEL 1.0f                // 0.1-2.0 (twitchy to smooth)
+#define FLYING_STYLE_BEGINNER                // SPORT, CINEMATIC, RACE, BEGINNER
+#define AGGRESSIVENESS_LEVEL 0.6f            // 0.1-2.0 (conservative to aggressive)
+#define SMOOTHNESS_LEVEL 1.5f                // 0.1-2.0 (twitchy to smooth)
+
+// Beginner safety limit: caps maximum throttle as a fraction of full range
+#define BEGINNER_THROTTLE_LIMIT 0.70f        // 70% max throttle for beginner profile
 
 // Environmental settings (location specific)
 #define MAGNETIC_DECLINATION_DEGREES 0.0f    // Local magnetic declination

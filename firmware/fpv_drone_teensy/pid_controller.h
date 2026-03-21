@@ -68,6 +68,13 @@ struct AdvancedPIDFeatures {
   bool conditional_integration;     // Smart integral freeze
   bool dynamic_integral_limit;      // Variable integral limits
   float integral_decay_rate;        // Integral term decay
+  
+  // Throttle PID Attenuation (TPA)
+  float tpa_breakpoint;             // Throttle (1000-2000) where TPA begins
+  float tpa_rate;                   // 0.0-1.0 attenuation factor
+
+  // I-term relax
+  float iterm_relax_threshold;      // Setpoint rate threshold (deg/s²)
 };
 
 struct FlightPhaseDetection {
@@ -104,17 +111,21 @@ private:
   PIDOutput final_output;   // Final mixed output
   
   // Enhanced PID calculation with advanced features
-  inline float enhanced_pid_calculate(EnhancedPIDGains* gains, float setpoint, float measured_value, float dt);
+  inline float enhanced_pid_calculate(EnhancedPIDGains* gains, float setpoint, float measured_value, float dt, int axis);
   
   // Cascaded control functions
-  void update_angle_loop(SensorData& sensor_data, RcData& rc_data, float dt);
+  void update_angle_loop(SensorData& sensor_data, RcData& rc_data, FlightState& flight_state, float dt);
   inline void update_rate_loop(SensorData& sensor_data, float dt);
   inline void update_rate_loop_direct(SensorData& sensor_data, RcData& rc_data, float dt);
   inline void apply_motor_saturation_compensation();
   
   // Filtering and smoothing
-  inline float apply_derivative_filter(float derivative, float alpha);
+  inline float apply_derivative_filter(float derivative, float alpha, int axis);
   void reset_pid_state(EnhancedPIDGains* gains);
+  
+  // Base gains for adaptive scaling (prevents drift from in-place multiplication)
+  CascadedPIDGains base_gains;
+  float current_throttle;
   
   // Advanced PID features
   AdvancedPIDFeatures advanced_features;
@@ -258,12 +269,25 @@ inline void PIDController::init() {
   advanced_features.setpoint_weighting_enabled = true;
   advanced_features.harmonic_compensation_enabled = false;
   // Defaults for weights and feedforward gains
-  advanced_features.setpoint_weight_p = 1.0f;     // full setpoint in P
-  advanced_features.setpoint_weight_d = 0.0f;     // derivative on error by default
+  advanced_features.setpoint_weight_p = 1.0f;
+  advanced_features.setpoint_weight_d = 0.0f;
   advanced_features.feedforward_gain = 1.0f;
   advanced_features.velocity_feedforward = 1.0f;
   advanced_features.gain_scheduler_factor = 1.0f;
   advanced_features.load_factor_compensation = 1.0f;
+  
+  // TPA defaults
+  advanced_features.tpa_breakpoint = 1500.0f;
+  advanced_features.tpa_rate = 0.5f;
+  
+  // I-term relax defaults
+  advanced_features.conditional_integration = true;
+  advanced_features.iterm_relax_threshold = 200.0f;
+  advanced_features.integral_decay_rate = 0.95f;
+  
+  // Store base gains for adaptive scaling (prevents drift)
+  base_gains = cascaded_gains;
+  current_throttle = 0.0f;
   
   Serial.println("Enhanced Cascaded PID Controller initialized");
 }
@@ -278,25 +302,48 @@ inline void PIDController::update(SensorData& sensor_data, RcData& rc_data, Flig
   
   last_update = current_time;
   
+  // Store throttle for TPA
+  current_throttle = (float)rc_data.throttle;
+  
   switch (flight_state.flight_mode) {
     case FLIGHT_MODE_MANUAL:
-      // Direct rate control - bypass angle loop
       update_rate_loop_direct(sensor_data, rc_data, dt);
       break;
+      
+    case FLIGHT_MODE_HORIZON: {
+      // Blend angle-loop setpoints with direct rate setpoints before the rate loop
+      update_angle_loop(sensor_data, rc_data, flight_state, dt);
+      
+      float direct_roll_rate  = (float)map(rc_data.roll,  1000, 2000, -360, 360);
+      float direct_pitch_rate = (float)map(rc_data.pitch, 1000, 2000, -360, 360);
+      
+      float stick_deflection = max(
+        fabsf((float)(rc_data.roll  - 1500)) / 500.0f,
+        fabsf((float)(rc_data.pitch - 1500)) / 500.0f);
+      stick_deflection = constrain(stick_deflection, 0.0f, 1.0f);
+      
+      angle_output.roll  = (1.0f - stick_deflection) * angle_output.roll  + stick_deflection * direct_roll_rate;
+      angle_output.pitch = (1.0f - stick_deflection) * angle_output.pitch + stick_deflection * direct_pitch_rate;
+      
+      update_rate_loop(sensor_data, dt);
+      break;
+    }
       
     case FLIGHT_MODE_STABILIZE:
     case FLIGHT_MODE_ALTITUDE_HOLD:
     case FLIGHT_MODE_POSITION_HOLD:
-      // Cascaded control - angle loop then rate loop
-      update_angle_loop(sensor_data, rc_data, dt);
+      update_angle_loop(sensor_data, rc_data, flight_state, dt);
       update_rate_loop(sensor_data, dt);
       break;
       
     default:
-      update_angle_loop(sensor_data, rc_data, dt);
+      update_angle_loop(sensor_data, rc_data, flight_state, dt);
       update_rate_loop(sensor_data, dt);
       break;
   }
+  
+  // Set throttle pass-through (mapped from RC 1000-2000 to 0-1000)
+  final_output.throttle = constrain((float)(rc_data.throttle - 1000), 0.0f, 1000.0f);
   
   // Phase-3 adaptive logic
   detect_flight_phase(sensor_data, rc_data);
@@ -308,101 +355,120 @@ inline void PIDController::update(SensorData& sensor_data, RcData& rc_data, Flig
   apply_motor_saturation_compensation();
 }
 
-inline void PIDController::update_angle_loop(SensorData& sensor_data, RcData& rc_data, float dt) {
-  // Calculate angle setpoints from RC input
-  float roll_setpoint = map(rc_data.roll, 1000, 2000, -45, 45);    // degrees
-  float pitch_setpoint = map(rc_data.pitch, 1000, 2000, -45, 45);  // degrees
+inline void PIDController::update_angle_loop(SensorData& sensor_data, RcData& rc_data, FlightState& flight_state, float dt) {
+  // Select per-mode angle limit
+  float max_angle;
+  switch (flight_state.flight_mode) {
+    case FLIGHT_MODE_POSITION_HOLD:
+      max_angle = MAX_ANGLE_POSITION_HOLD;
+      break;
+    case FLIGHT_MODE_ALTITUDE_HOLD:
+      max_angle = MAX_ANGLE_ALTITUDE_HOLD;
+      break;
+    default:
+      max_angle = MAX_ANGLE_STABILIZE;
+      break;
+  }
   
-  // Get adaptive tuning from sensor redundancy system
+  float roll_setpoint = map(rc_data.roll, 1000, 2000, -(int)max_angle, (int)max_angle);
+  float pitch_setpoint = map(rc_data.pitch, 1000, 2000, -(int)max_angle, (int)max_angle);
+  
   extern SensorRedundancySystem sensor_redundancy;
   FlightTuning adaptive_tuning = sensor_redundancy.get_adaptive_tuning();
   
-  // Apply adaptive gains
   float roll_gain_modifier = adaptive_tuning.stability_gain_multiplier;
   float pitch_gain_modifier = adaptive_tuning.stability_gain_multiplier;
   
-  // Angle loop outputs rate setpoints with adaptive tuning
   angle_output.roll = enhanced_pid_calculate(&cascaded_gains.angle_roll, 
-                                           roll_setpoint, sensor_data.roll, dt) * roll_gain_modifier;
+                                           roll_setpoint, sensor_data.roll, dt, 0) * roll_gain_modifier;
   angle_output.pitch = enhanced_pid_calculate(&cascaded_gains.angle_pitch, 
-                                            pitch_setpoint, sensor_data.pitch, dt) * pitch_gain_modifier;
+                                            pitch_setpoint, sensor_data.pitch, dt, 1) * pitch_gain_modifier;
   
-  // Yaw is always rate control
-  angle_output.yaw = map(rc_data.yaw, 1000, 2000, -200, 200);  // deg/s
+  angle_output.yaw = map(rc_data.yaw, 1000, 2000, -200, 200);
 }
 
 inline void PIDController::update_rate_loop(SensorData& sensor_data, float dt) {
-  // Rate loop uses angle loop outputs as setpoints
   final_output.roll = enhanced_pid_calculate(&cascaded_gains.rate_roll,
-                                           angle_output.roll, sensor_data.imu.gyro_x, dt);
+                                           angle_output.roll, sensor_data.imu.gyro_x, dt, 0);
   final_output.pitch = enhanced_pid_calculate(&cascaded_gains.rate_pitch,
-                                            angle_output.pitch, sensor_data.imu.gyro_y, dt);
+                                            angle_output.pitch, sensor_data.imu.gyro_y, dt, 1);
   final_output.yaw = enhanced_pid_calculate(&cascaded_gains.rate_yaw,
-                                          angle_output.yaw, sensor_data.imu.gyro_z, dt);
+                                          angle_output.yaw, sensor_data.imu.gyro_z, dt, 2);
 }
 
 inline void PIDController::update_rate_loop_direct(SensorData& sensor_data, RcData& rc_data, float dt) {
-  // Direct rate control for manual mode
-  float roll_rate_setpoint = map(rc_data.roll, 1000, 2000, -360, 360);   // deg/s
-  float pitch_rate_setpoint = map(rc_data.pitch, 1000, 2000, -360, 360); // deg/s
-  float yaw_rate_setpoint = map(rc_data.yaw, 1000, 2000, -200, 200);     // deg/s
+  float roll_rate_setpoint = map(rc_data.roll, 1000, 2000, -360, 360);
+  float pitch_rate_setpoint = map(rc_data.pitch, 1000, 2000, -360, 360);
+  float yaw_rate_setpoint = map(rc_data.yaw, 1000, 2000, -200, 200);
   
   final_output.roll = enhanced_pid_calculate(&cascaded_gains.rate_roll,
-                                           roll_rate_setpoint, sensor_data.imu.gyro_x, dt);
+                                           roll_rate_setpoint, sensor_data.imu.gyro_x, dt, 0);
   final_output.pitch = enhanced_pid_calculate(&cascaded_gains.rate_pitch,
-                                            pitch_rate_setpoint, sensor_data.imu.gyro_y, dt);
+                                            pitch_rate_setpoint, sensor_data.imu.gyro_y, dt, 1);
   final_output.yaw = enhanced_pid_calculate(&cascaded_gains.rate_yaw,
-                                          yaw_rate_setpoint, sensor_data.imu.gyro_z, dt);
+                                          yaw_rate_setpoint, sensor_data.imu.gyro_z, dt, 2);
 }
 
-inline float PIDController::enhanced_pid_calculate(EnhancedPIDGains* gains, float setpoint, float measured_value, float dt) {
-  // ---------------------- Set-point weighting ----------------------
+inline float PIDController::enhanced_pid_calculate(EnhancedPIDGains* gains, float setpoint, float measured_value, float dt, int axis) {
   float error = calculate_setpoint_weighted_error(setpoint, measured_value, advanced_features.setpoint_weight_p);
 
-  // Proportional term (optionally PonM)
   float p_input = gains->proportional_on_measurement ? measured_value : error;
   float p_term = gains->kp * (gains->proportional_on_measurement ? -p_input : error);
 
-  // -------------------------- Integral ----------------------------
-  gains->integral += error * dt;
+  // I-term relax: reduce accumulation during fast stick movements
+  float i_scale = 1.0f;
+  if (advanced_features.conditional_integration) {
+    static float prev_setpoint[4] = {0};
+    float setpoint_rate = fabsf(setpoint - prev_setpoint[axis]) / dt;
+    prev_setpoint[axis] = setpoint;
+    if (setpoint_rate > advanced_features.iterm_relax_threshold) {
+      i_scale = 0.0f;
+      gains->integral *= advanced_features.integral_decay_rate;
+    }
+  }
+
+  gains->integral += error * dt * i_scale;
   if (gains->integral > gains->integral_limit) gains->integral = gains->integral_limit;
   if (gains->integral < -gains->integral_limit) gains->integral = -gains->integral_limit;
   float i_term = gains->ki * gains->integral;
 
-  // ------------------------- Derivative ---------------------------
   float derivative;
   if (gains->derivative_on_measurement) {
-    derivative = -(measured_value - gains->last_input) / dt; // d/dt(measurement)
+    derivative = -(measured_value - gains->last_input) / dt;
     gains->last_input = measured_value;
   } else {
     float error_d = calculate_setpoint_weighted_error(setpoint, measured_value, advanced_features.setpoint_weight_d);
     derivative = (error_d - gains->last_error) / dt;
     gains->last_error = error_d;
   }
-  derivative = apply_derivative_filter(derivative, gains->derivative_filter_alpha);
+  derivative = apply_derivative_filter(derivative, gains->derivative_filter_alpha, axis);
   gains->last_derivative = derivative;
   float d_term = gains->kd * derivative;
 
-  // ------------------------ Feed-forward --------------------------
+  // Throttle PID Attenuation -- reduce D (and P slightly) at high throttle
+  if (current_throttle > advanced_features.tpa_breakpoint) {
+    float tpa_factor = 1.0f - advanced_features.tpa_rate *
+        (current_throttle - advanced_features.tpa_breakpoint) / (2000.0f - advanced_features.tpa_breakpoint);
+    tpa_factor = constrain(tpa_factor, 0.0f, 1.0f);
+    d_term *= tpa_factor;
+    p_term *= (0.5f + 0.5f * tpa_factor);
+  }
+
   float ff_term = 0;
   if (advanced_features.feedforward_enabled) {
-    // Simple static feed-forward proportional to setpoint (or rate setpoint in deg/s)
     ff_term = setpoint * advanced_features.feedforward_gain * advanced_features.velocity_feedforward;
   }
 
-  // ------------------------- Summation ---------------------------
   float output = p_term + i_term + d_term + ff_term;
   output = constrain(output, gains->output_min, gains->output_max);
   return output;
 }
 
-inline float PIDController::apply_derivative_filter(float derivative, float alpha) {
-  // Simple low-pass filter for derivative term
-  static float filtered_derivative[4] = {0, 0, 0, 0}; // For roll, pitch, yaw, alt
-  static int filter_index = 0;
-  
-  filtered_derivative[filter_index] = alpha * derivative + (1.0 - alpha) * filtered_derivative[filter_index];
-  return filtered_derivative[filter_index];
+inline float PIDController::apply_derivative_filter(float derivative, float alpha, int axis) {
+  static float filtered_derivative[4] = {0, 0, 0, 0};
+  axis = constrain(axis, 0, 3);
+  filtered_derivative[axis] = alpha * derivative + (1.0f - alpha) * filtered_derivative[axis];
+  return filtered_derivative[axis];
 }
 
 inline void PIDController::apply_motor_saturation_compensation() {
@@ -513,18 +579,16 @@ inline void PIDController::update_adaptive_gains(SensorData& sensor_data, RcData
   float disturbance_factor = constrain(sqrt(control_variance) / 100.0f, 0.5f, 2.0f);
   advanced_features.gain_scheduler_factor = disturbance_factor * load_factor;
   
-  // Apply adaptive gains to rate loops (more responsive to disturbances)
+  // Apply adaptive gains from base (not in-place) to prevent drift
   float adaptive_multiplier = advanced_features.gain_scheduler_factor;
   
-  // Increase P gain for better disturbance rejection
-  cascaded_gains.rate_roll.kp *= (0.8f + 0.4f * adaptive_multiplier);
-  cascaded_gains.rate_pitch.kp *= (0.8f + 0.4f * adaptive_multiplier);
-  cascaded_gains.rate_yaw.kp *= (0.9f + 0.2f * adaptive_multiplier);
+  cascaded_gains.rate_roll.kp  = base_gains.rate_roll.kp  * (0.8f + 0.4f * adaptive_multiplier);
+  cascaded_gains.rate_pitch.kp = base_gains.rate_pitch.kp * (0.8f + 0.4f * adaptive_multiplier);
+  cascaded_gains.rate_yaw.kp   = base_gains.rate_yaw.kp   * (0.9f + 0.2f * adaptive_multiplier);
   
-  // Moderate I gain increase for steady-state accuracy
-  cascaded_gains.rate_roll.ki *= (0.9f + 0.2f * adaptive_multiplier);
-  cascaded_gains.rate_pitch.ki *= (0.9f + 0.2f * adaptive_multiplier);
-  cascaded_gains.rate_yaw.ki *= (0.95f + 0.1f * adaptive_multiplier);
+  cascaded_gains.rate_roll.ki  = base_gains.rate_roll.ki  * (0.9f + 0.2f * adaptive_multiplier);
+  cascaded_gains.rate_pitch.ki = base_gains.rate_pitch.ki * (0.9f + 0.2f * adaptive_multiplier);
+  cascaded_gains.rate_yaw.ki   = base_gains.rate_yaw.ki   * (0.95f + 0.1f * adaptive_multiplier);
 }
 
 inline void PIDController::detect_flight_phase(SensorData& sensor_data, RcData& rc_data) {
@@ -591,21 +655,18 @@ inline void PIDController::set_flight_characteristics(float aggressiveness, floa
   advanced_features.aggressiveness_level = constrain(aggressiveness, 0.1f, 2.0f);
   advanced_features.smoothness_factor = constrain(smoothness, 0.1f, 2.0f);
   
-  // Apply aggressiveness to rate loop gains
   float rate_multiplier = advanced_features.aggressiveness_level;
-  cascaded_gains.rate_roll.kp *= rate_multiplier;
-  cascaded_gains.rate_pitch.kp *= rate_multiplier;
-  cascaded_gains.rate_yaw.kp *= (rate_multiplier * 0.8f);
+  cascaded_gains.rate_roll.kp  = base_gains.rate_roll.kp  * rate_multiplier;
+  cascaded_gains.rate_pitch.kp = base_gains.rate_pitch.kp * rate_multiplier;
+  cascaded_gains.rate_yaw.kp   = base_gains.rate_yaw.kp   * (rate_multiplier * 0.8f);
   
-  // Apply smoothness to derivative filtering
   float smooth_factor = advanced_features.smoothness_factor;
   cascaded_gains.rate_roll.derivative_filter_alpha = 0.1f * smooth_factor;
   cascaded_gains.rate_pitch.derivative_filter_alpha = 0.1f * smooth_factor;
   cascaded_gains.rate_yaw.derivative_filter_alpha = 0.15f * smooth_factor;
   
-  // Adjust angle loop responsiveness
-  cascaded_gains.angle_roll.kp *= (2.0f / smooth_factor);
-  cascaded_gains.angle_pitch.kp *= (2.0f / smooth_factor);
+  cascaded_gains.angle_roll.kp  = base_gains.angle_roll.kp  * (2.0f / smooth_factor);
+  cascaded_gains.angle_pitch.kp = base_gains.angle_pitch.kp * (2.0f / smooth_factor);
 }
 
 inline void PIDController::calculate_performance_metrics() {
@@ -640,13 +701,12 @@ inline float PIDController::calculate_feedforward_term(float setpoint_rate, floa
 
 inline void PIDController::apply_harmonic_compensation() {
   if (!advanced_features.harmonic_compensation_enabled) return;
-  
-  // TODO: Get motor RPM data from motor control system
-  // For now, use placeholder harmonic compensation
+
+  extern MotorControl motor_control;
+
   for (int i = 0; i < 4; i++) {
-    // Would get actual motor RPM from motor control system
-    // advanced_features.motor_harmonic_filters[i] = calculated_frequency;
-    advanced_features.motor_harmonic_filters[i] = 0.0f; // Placeholder
+    uint16_t rpm = motor_control.get_motor_rpm(i);
+    advanced_features.motor_harmonic_filters[i] = rpm / 60.0f;
   }
 }
 

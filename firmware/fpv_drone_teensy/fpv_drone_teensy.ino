@@ -182,6 +182,34 @@ void loop() {
   delay(10);
 }
 
+void update_non_imu_sensors() {
+  static unsigned long last_mag_update = 0;
+  if (millis() - last_mag_update > 50) {
+    read_magnetometer_data(&sensor_data.mag);
+    apply_magnetometer_calibration(&sensor_data.mag);
+    last_mag_update = millis();
+  }
+  
+  static unsigned long last_baro_update = 0;
+  if (millis() - last_baro_update > 100) {
+    read_barometer_data(&sensor_data.baro);
+    last_baro_update = millis();
+  }
+  
+  static unsigned long last_gps_update = 0;
+  if (millis() - last_gps_update > 200) {
+    read_gps_data(&sensor_data.gps);
+    last_gps_update = millis();
+  }
+  
+  read_sonar_data(&sensor_data.sonar);
+  
+  sensor_data.battery_voltage = analogRead(BATTERY_VOLTAGE_PIN) * VOLTAGE_SCALE;
+  sensor_data.current = analogRead(CURRENT_SENSOR_PIN) * CURRENT_SCALE;
+  
+  update_sensor_fusion();
+}
+
 void main_loop() {
   // Update timing
   unsigned long current_time = micros();
@@ -191,10 +219,11 @@ void main_loop() {
   // Phase 2: Update dual IMU system
   #ifdef ENABLE_DUAL_IMU
   dual_imu_manager.update();
-  // Use fused IMU data instead of single IMU
   sensor_data.imu = dual_imu_manager.get_fused_data();
+  apply_imu_calibration(&sensor_data.imu);
+  // Non-IMU sensors must still update when using dual IMU
+  update_non_imu_sensors();
   #else
-  // Read single IMU sensor
   update_sensors();
   #endif
   
@@ -237,6 +266,33 @@ void main_loop() {
     motor_control.emergency_stop();
     armed = false;
     led_control.set_status(LED_ERROR);
+  }
+  
+  // Crash detection: high-g impact followed by low gyro = crash
+  if (armed) {
+    static unsigned long crash_detect_start = 0;
+    float accel_mag = sqrtf(sensor_data.imu.accel_x * sensor_data.imu.accel_x +
+                            sensor_data.imu.accel_y * sensor_data.imu.accel_y +
+                            sensor_data.imu.accel_z * sensor_data.imu.accel_z);
+    float gyro_mag = sqrtf(sensor_data.imu.gyro_x * sensor_data.imu.gyro_x +
+                           sensor_data.imu.gyro_y * sensor_data.imu.gyro_y +
+                           sensor_data.imu.gyro_z * sensor_data.imu.gyro_z);
+    
+    bool high_g_impact = accel_mag > (15.0f * 9.81f);
+    bool stalled = gyro_mag < 5.0f && accel_mag < (2.0f * 9.81f);
+    
+    if (high_g_impact || stalled) {
+      if (crash_detect_start == 0) crash_detect_start = millis();
+      if (millis() - crash_detect_start > 2000) {
+        Serial.println("CRASH DETECTED -- auto-disarming");
+        armed = false;
+        motor_control.disarm();
+        led_control.set_status(LED_ERROR);
+        crash_detect_start = 0;
+      }
+    } else {
+      crash_detect_start = 0;
+    }
   }
   
   // Update flight state
@@ -487,7 +543,7 @@ void check_arm_disarm() {
     if (!arm_sequence_started) {
       arm_sequence_started = true;
       arm_start_time = millis();
-    } else if (millis() - arm_start_time > 200) {
+    } else if (millis() - arm_start_time > 750) {
       // Disarm the drone
       armed = false;
       motor_control.disarm();
@@ -507,10 +563,12 @@ void check_arm_disarm() {
       Serial.println("CRITICAL: Battery voltage critically low - LAND IMMEDIATELY!");
       led_control.set_status(LED_LOW_BATTERY);
       
-      // Force RTH or emergency landing if configured
-      if (check_gps_functions_configured() && sensor_data.gps.healthy && sensor_data.gps.fix) {
+      if (sensor_data.gps.healthy && sensor_data.gps.fix && sensor_data.gps.satellites >= GPS_MIN_SATELLITES) {
         Serial.println("Triggering emergency RTH due to critical battery");
-        // Could trigger automatic RTH here
+        flight_modes.return_to_home(sensor_data, rc_data);
+      } else {
+        Serial.println("No GPS -- pilot must land immediately!");
+        emergency_altitude_descent();
       }
     } else if (battery_status.low_voltage_warning) {
       if (millis() % 10000 < 100) { // Every 10 seconds
@@ -791,9 +849,10 @@ void save_config() {
   address += sizeof(bool);
   
   // Save sensor calibration offsets
-  float gyro_offsets[3] = {0, 0, 0}; // Would get from calibration system
-  float accel_offsets[3] = {0, 0, 0};
-  float mag_offsets[3] = {0, 0, 0};
+  extern CalibrationData calibration_data;
+  float gyro_offsets[3]  = {calibration_data.gyro_offsets[0], calibration_data.gyro_offsets[1], calibration_data.gyro_offsets[2]};
+  float accel_offsets[3] = {calibration_data.accel_offsets[0], calibration_data.accel_offsets[1], calibration_data.accel_offsets[2]};
+  float mag_offsets[3]   = {calibration_data.mag_offsets[0], calibration_data.mag_offsets[1], calibration_data.mag_offsets[2]};
   
   EEPROM.put(address, gyro_offsets);
   address += sizeof(gyro_offsets);
@@ -810,7 +869,7 @@ void save_config() {
   // Save sensor redundancy config
   // extern SensorRedundancySystem sensor_redundancy; // unused
   SensorRedundancyConfig redundancy_config;
-  // redundancy_config = sensor_redundancy.get_config(); // Would implement getter
+  redundancy_config = sensor_redundancy.get_config();
   EEPROM.put(address, redundancy_config);
   address += sizeof(SensorRedundancyConfig);
   

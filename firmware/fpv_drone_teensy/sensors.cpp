@@ -22,7 +22,7 @@ static unsigned long lastFusionTime = 0;
 
 // Mahony gains
 #define MAHONY_TWO_KP 2.0f
-#define MAHONY_TWO_KI 0.0f
+#define MAHONY_TWO_KI 0.02f
 #define MAHONY_AHRS_IMPLEMENTED 1
 static float integralFBx=0, integralFBy=0, integralFBz=0;
 
@@ -344,10 +344,25 @@ void update_enhanced_sensor_fusion() {
   if (dt <= 0) dt = 0.001f;
   lastFusionTime = now;
 
-  // Use Mahony filter for attitude estimation
+  // Apply PT1 low-pass filter on accelerometer (40 Hz cutoff) before fusion
+  static float accel_lpf[3] = {0, 0, 0};
+  static bool accel_lpf_init = false;
+  const float accel_cutoff_hz = 40.0f;
+  float rc_accel = 1.0f / (2.0f * PI * accel_cutoff_hz);
+  float alpha_accel = dt / (dt + rc_accel);
+  if (!accel_lpf_init) {
+    accel_lpf[0] = sensor_data.imu.accel_x;
+    accel_lpf[1] = sensor_data.imu.accel_y;
+    accel_lpf[2] = sensor_data.imu.accel_z;
+    accel_lpf_init = true;
+  }
+  accel_lpf[0] += alpha_accel * (sensor_data.imu.accel_x - accel_lpf[0]);
+  accel_lpf[1] += alpha_accel * (sensor_data.imu.accel_y - accel_lpf[1]);
+  accel_lpf[2] += alpha_accel * (sensor_data.imu.accel_z - accel_lpf[2]);
+
   extern void mahony_ahrs_update_imu(float gx, float gy, float gz, float ax, float ay, float az, float dt);
   mahony_ahrs_update_imu(sensor_data.imu.gyro_x * DEG_TO_RAD, sensor_data.imu.gyro_y * DEG_TO_RAD, sensor_data.imu.gyro_z * DEG_TO_RAD,
-                         sensor_data.imu.accel_x, sensor_data.imu.accel_y, sensor_data.imu.accel_z, dt);
+                         accel_lpf[0], accel_lpf[1], accel_lpf[2], dt);
 
   // convert quaternion to Euler
   extern float q0,q1,q2,q3;

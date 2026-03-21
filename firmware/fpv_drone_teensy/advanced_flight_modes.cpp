@@ -161,10 +161,9 @@ void AdvancedFlightModes::update_acro_plus_mode(SensorData& sensors, RcData& rc,
       recovery_mode_active = false;
       Serial.println("Acro Plus: Recovery complete");
     } else {
-      // Would implement recovery logic here - gradually reduce angle
-      Serial.print("Acro Plus: Recovering from ");
-      Serial.print(current_angle);
-      Serial.println("° angle");
+      float recovery_strength = constrain(current_angle / acro_plus_recovery_angle, 0.0f, 1.0f);
+      rc.roll  = (int)(rc.roll  * (1.0f - recovery_strength) + 1500 * recovery_strength);
+      rc.pitch = (int)(rc.pitch * (1.0f - recovery_strength) + 1500 * recovery_strength);
     }
   }
 }
@@ -182,14 +181,33 @@ void AdvancedFlightModes::update_sport_mode(SensorData& sensors, RcData& rc, Fli
 }
 
 void AdvancedFlightModes::update_cinematic_mode(SensorData& sensors, RcData& rc, FlightState& state) {
-  // Cinematic mode: Ultra-smooth response for video recording
-  
-  // This would apply heavy expo and smoothing to all inputs
-  static unsigned long last_log = 0;
-  if (millis() - last_log > 5000) {
-    Serial.println("Cinematic mode: Smooth video-optimized flight characteristics active");
-    last_log = millis();
-  }
+  static float smooth_roll = 1500.0f;
+  static float smooth_pitch = 1500.0f;
+  static float smooth_yaw = 1500.0f;
+  static float smooth_throttle = 1000.0f;
+
+  float expo = cinematic_expo_factor;
+  auto apply_expo = [expo](int raw) -> float {
+    float normalized = (raw - 1500) / 500.0f;
+    float expo_val = normalized * expo + (1.0f - expo) * normalized * normalized * normalized;
+    return 1500.0f + expo_val * 500.0f;
+  };
+
+  float target_roll = apply_expo(rc.roll);
+  float target_pitch = apply_expo(rc.pitch);
+  float target_yaw = apply_expo(rc.yaw);
+  float target_throttle = (float)rc.throttle;
+
+  const float alpha = 0.02f;
+  smooth_roll     += alpha * (target_roll - smooth_roll);
+  smooth_pitch    += alpha * (target_pitch - smooth_pitch);
+  smooth_yaw      += alpha * (target_yaw - smooth_yaw);
+  smooth_throttle += alpha * (target_throttle - smooth_throttle);
+
+  rc.roll     = (int)constrain(smooth_roll, 1000, 2000);
+  rc.pitch    = (int)constrain(smooth_pitch, 1000, 2000);
+  rc.yaw      = (int)constrain(smooth_yaw, 1000, 2000);
+  rc.throttle = (int)constrain(smooth_throttle, 1000, 2000);
 }
 
 void AdvancedFlightModes::update_gps_rescue_mode(SensorData& sensors, RcData& rc, FlightState& state) {
@@ -273,10 +291,12 @@ void AdvancedFlightModes::update_launch_assist_mode(SensorData& sensors, RcData&
     launch_detected = true;
     Serial.println("Launch Assist: Launch detected - stabilizing flight");
     
-    // Would implement launch stabilization logic
-    // - Gradually increase stability
-    // - Smooth throttle response
-    // - Prevent tip-overs
+    static unsigned long launch_start = millis();
+    float elapsed_s = (millis() - launch_start) / 1000.0f;
+    float launch_throttle = constrain(1200 + (int)(elapsed_s / 0.3f * 400), 1200, 1600);
+    rc.throttle = (int)launch_throttle;
+    rc.roll  = 1500;
+    rc.pitch = 1500;
   }
   
   // Reset detection after successful flight
@@ -302,11 +322,10 @@ void AdvancedFlightModes::update_land_assist_mode(SensorData& sensors, RcData& r
   
   if (landing_sequence_active) {
     if (near_ground) {
-      Serial.println("Land Assist: Ground proximity - reducing descent rate");
-      // Would implement gentle landing logic
-      // - Reduce descent rate
-      // - Maintain level attitude
-      // - Cut throttle when touching ground
+      float descent_throttle = constrain(1100 + (int)(sensors.sonar.distance * 4.0f), 1050, 1200);
+      rc.throttle = (int)descent_throttle;
+      rc.roll = 1500;
+      rc.pitch = 1500;
       
       if (sensors.sonar.distance < 5.0f) { // 5cm - on ground
         Serial.println("Land Assist: Ground contact - landing complete");

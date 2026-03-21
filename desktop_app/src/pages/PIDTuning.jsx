@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 const PIDTuning = ({ sendCommand, connected }) => {
   const [pidValues, setPidValues] = useState({
@@ -29,6 +29,21 @@ const PIDTuning = ({ sendCommand, connected }) => {
   const [selectedAxis, setSelectedAxis] = useState('roll');
   const [autoTuneActive, setAutoTuneActive] = useState(false);
 
+  const [activeProfile, setActiveProfile] = useState(1);
+  const [profiles, setProfiles] = useState({
+    1: { name: 'Default' },
+    2: { name: 'Sport' },
+    3: { name: 'Cinematic' }
+  });
+
+  const [rateSettings, setRateSettings] = useState({
+    maxRollRate: 360, maxPitchRate: 360, maxYawRate: 200,
+    rollExpo: 0.0, pitchExpo: 0.0, yawExpo: 0.0
+  });
+
+  const rateCurveCanvasRef = useRef(null);
+  const stepResponseCanvasRef = useRef(null);
+
   useEffect(() => {
     if (connected) {
       // Request current PID values
@@ -47,6 +62,227 @@ const PIDTuning = ({ sendCommand, connected }) => {
       window.electronAPI.removeAllListeners('serial-data');
     };
   }, [connected]);
+
+  const switchProfile = useCallback((profileNum) => {
+    setProfiles(prev => ({
+      ...prev,
+      [activeProfile]: { ...prev[activeProfile], pidValues: JSON.parse(JSON.stringify(pidValues)) }
+    }));
+
+    const target = profiles[profileNum];
+    if (target.pidValues) {
+      setPidValues(target.pidValues);
+    }
+    setActiveProfile(profileNum);
+    if (connected) {
+      sendCommand(`set pid_profile ${profileNum}`);
+    }
+  }, [activeProfile, pidValues, profiles, connected, sendCommand]);
+
+  const computeRateCurve = useCallback((rcCommand, maxRate, expo) => {
+    const rc = rcCommand / 100;
+    const rcRate = 1.0;
+    return maxRate * (rc * rcRate + rc * rc * rc * expo * (1 - rcRate));
+  }, []);
+
+  useEffect(() => {
+    const canvas = rateCurveCanvasRef.current;
+    if (!canvas || tuningMode !== 'rate') return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    const pad = { top: 20, right: 20, bottom: 40, left: 55 };
+    const plotW = w - pad.left - pad.right;
+    const plotH = h - pad.top - pad.bottom;
+
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.fillStyle = '#f9fafb';
+    ctx.fillRect(pad.left, pad.top, plotW, plotH);
+
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 5; i++) {
+      const y = pad.top + (plotH / 5) * i;
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(pad.left + plotW, y);
+      ctx.stroke();
+    }
+    for (let i = 0; i <= 5; i++) {
+      const x = pad.left + (plotW / 5) * i;
+      ctx.beginPath();
+      ctx.moveTo(x, pad.top);
+      ctx.lineTo(x, pad.top + plotH);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#9ca3af';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(pad.left, pad.top, plotW, plotH);
+
+    const maxDisplayRate = Math.max(rateSettings.maxRollRate, rateSettings.maxPitchRate, rateSettings.maxYawRate, 100);
+
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= 5; i++) {
+      ctx.fillText(`${i * 20}%`, pad.left + (plotW / 5) * i, pad.top + plotH + 16);
+    }
+    ctx.fillText('Stick Input', pad.left + plotW / 2, pad.top + plotH + 34);
+
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 5; i++) {
+      const val = Math.round((maxDisplayRate / 5) * (5 - i));
+      ctx.fillText(`${val}`, pad.left - 6, pad.top + (plotH / 5) * i + 4);
+    }
+    ctx.save();
+    ctx.translate(14, pad.top + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText('Rate (deg/s)', 0, 0);
+    ctx.restore();
+
+    const curves = [
+      { key: 'Roll', color: '#3b82f6', maxRate: rateSettings.maxRollRate, expo: rateSettings.rollExpo },
+      { key: 'Pitch', color: '#22c55e', maxRate: rateSettings.maxPitchRate, expo: rateSettings.pitchExpo },
+      { key: 'Yaw', color: '#a855f7', maxRate: rateSettings.maxYawRate, expo: rateSettings.yawExpo },
+    ];
+
+    curves.forEach(({ color, maxRate, expo }) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i <= 100; i++) {
+        const rate = computeRateCurve(i, maxRate, expo);
+        const x = pad.left + (i / 100) * plotW;
+        const y = pad.top + plotH - (rate / maxDisplayRate) * plotH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    });
+
+    const legendX = pad.left + 10;
+    const legendY = pad.top + 10;
+    curves.forEach(({ key, color }, idx) => {
+      const y = legendY + idx * 18;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(legendX, y);
+      ctx.lineTo(legendX + 20, y);
+      ctx.stroke();
+      ctx.fillStyle = '#374151';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(key, legendX + 26, y + 4);
+    });
+  }, [rateSettings, tuningMode, computeRateCurve]);
+
+  useEffect(() => {
+    const canvas = stepResponseCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    const pad = { top: 20, right: 20, bottom: 40, left: 55 };
+    const plotW = w - pad.left - pad.right;
+    const plotH = h - pad.top - pad.bottom;
+
+    const pid = pidValues.rate[selectedAxis] || pidValues.rate.roll;
+    const Kp = pid.kp;
+    const Ki = pid.ki;
+    const Kd = pid.kd;
+
+    const dt = 0.001;
+    const steps = 500;
+    const setpoint = 1.0;
+    let output = 0;
+    let iTerm = 0;
+    let prevError = 0;
+    const response = [];
+
+    for (let i = 0; i < steps; i++) {
+      const error = setpoint - output;
+      const pTerm = Kp * error;
+      iTerm += Ki * error * dt;
+      iTerm = Math.max(-2, Math.min(2, iTerm));
+      const dTerm = i === 0 ? 0 : Kd * (error - prevError) / dt;
+      output += (pTerm + iTerm + dTerm) * dt;
+      output = Math.max(-3, Math.min(3, output));
+      prevError = error;
+      response.push(output);
+    }
+
+    const maxVal = Math.max(setpoint * 1.5, ...response.map(Math.abs));
+
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.fillStyle = '#f9fafb';
+    ctx.fillRect(pad.left, pad.top, plotW, plotH);
+
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + (plotH / 4) * i;
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(pad.left + plotW, y);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#9ca3af';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(pad.left, pad.top, plotW, plotH);
+
+    const setpointY = pad.top + plotH - (setpoint / maxVal) * plotH;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = '#9ca3af';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, setpointY);
+    ctx.lineTo(pad.left + plotW, setpointY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('setpoint', pad.left + plotW - 50, setpointY - 5);
+
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < steps; i++) {
+      const x = pad.left + (i / steps) * plotW;
+      const y = pad.top + plotH - (response[i] / maxVal) * plotH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= 5; i++) {
+      const t = ((steps * dt) / 5) * i;
+      ctx.fillText(`${t.toFixed(1)}s`, pad.left + (plotW / 5) * i, pad.top + plotH + 16);
+    }
+    ctx.fillText('Time (s)', pad.left + plotW / 2, pad.top + plotH + 34);
+
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+      const val = (maxVal / 4) * (4 - i);
+      ctx.fillText(val.toFixed(2), pad.left - 6, pad.top + (plotH / 4) * i + 4);
+    }
+    ctx.save();
+    ctx.translate(14, pad.top + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText('Response', 0, 0);
+    ctx.restore();
+  }, [pidValues, selectedAxis]);
 
   const parsePidData = (data) => {
     // Parse PID values from serial data
@@ -258,6 +494,37 @@ const PIDTuning = ({ sendCommand, connected }) => {
         </div>
       </div>
 
+      {/* PID Profile Switching */}
+      <div className="bg-white rounded-lg shadow-md mb-6">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-xl font-semibold">PID Profile</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            Switch between profiles for different flight styles. Values are saved per profile.
+          </p>
+        </div>
+        <div className="p-6">
+          <div className="flex space-x-2">
+            {[1, 2, 3].map(num => (
+              <button
+                key={num}
+                onClick={() => switchProfile(num)}
+                className={`flex-1 py-2 px-4 rounded-t-lg font-medium border-b-2 transition-colors ${
+                  activeProfile === num
+                    ? 'bg-blue-50 text-blue-700 border-blue-600'
+                    : 'bg-gray-50 text-gray-600 border-transparent hover:bg-gray-100 hover:text-gray-800'
+                }`}
+              >
+                <div className="text-sm font-semibold">Profile {num}</div>
+                <div className="text-xs opacity-75">{profiles[num].name}</div>
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 text-sm text-gray-500">
+            Active: <span className="font-medium text-gray-700">Profile {activeProfile} — {profiles[activeProfile].name}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Telemetry Display */}
       <div className="bg-white rounded-lg shadow-md mb-6">
         <div className="px-6 py-4 border-b border-gray-200">
@@ -356,6 +623,113 @@ const PIDTuning = ({ sendCommand, connected }) => {
           </div>
         </div>
       )}
+
+      {/* Rate Curve Visualizer */}
+      {tuningMode === 'rate' && (
+        <div className="bg-white rounded-lg shadow-md mb-6">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-xl font-semibold">Rate Curve Preview</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Betaflight-style rate curves showing stick-to-rate mapping for each axis.
+            </p>
+          </div>
+          <div className="p-6">
+            <div className="flex justify-center mb-6">
+              <canvas
+                ref={rateCurveCanvasRef}
+                width={500}
+                height={300}
+                className="border border-gray-200 rounded"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-4">
+                <h3 className="font-semibold text-blue-600">Roll</h3>
+                <PidSlider
+                  label="Max Rate (deg/s)"
+                  value={rateSettings.maxRollRate}
+                  onChange={(v) => setRateSettings(prev => ({ ...prev, maxRollRate: v }))}
+                  min={100} max={1000} step={10}
+                />
+                <PidSlider
+                  label="Expo"
+                  value={rateSettings.rollExpo}
+                  onChange={(v) => setRateSettings(prev => ({ ...prev, rollExpo: v }))}
+                  min={0} max={1} step={0.01}
+                />
+              </div>
+              <div className="space-y-4">
+                <h3 className="font-semibold text-green-600">Pitch</h3>
+                <PidSlider
+                  label="Max Rate (deg/s)"
+                  value={rateSettings.maxPitchRate}
+                  onChange={(v) => setRateSettings(prev => ({ ...prev, maxPitchRate: v }))}
+                  min={100} max={1000} step={10}
+                />
+                <PidSlider
+                  label="Expo"
+                  value={rateSettings.pitchExpo}
+                  onChange={(v) => setRateSettings(prev => ({ ...prev, pitchExpo: v }))}
+                  min={0} max={1} step={0.01}
+                />
+              </div>
+              <div className="space-y-4">
+                <h3 className="font-semibold text-purple-600">Yaw</h3>
+                <PidSlider
+                  label="Max Rate (deg/s)"
+                  value={rateSettings.maxYawRate}
+                  onChange={(v) => setRateSettings(prev => ({ ...prev, maxYawRate: v }))}
+                  min={100} max={500} step={10}
+                />
+                <PidSlider
+                  label="Expo"
+                  value={rateSettings.yawExpo}
+                  onChange={(v) => setRateSettings(prev => ({ ...prev, yawExpo: v }))}
+                  min={0} max={1} step={0.01}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PID Step Response Graph */}
+      <div className="bg-white rounded-lg shadow-md mb-6">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-xl font-semibold">PID Step Response</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            Simulated step response for the selected axis ({selectedAxis}). Shows how the PID controller would respond to a unit step input.
+          </p>
+        </div>
+        <div className="p-6">
+          <div className="flex space-x-2 mb-4">
+            {['roll', 'pitch', 'yaw'].map(axis => (
+              <button
+                key={axis}
+                onClick={() => setSelectedAxis(axis)}
+                className={`px-3 py-1 rounded text-sm font-medium capitalize ${
+                  selectedAxis === axis
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                {axis}
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-center">
+            <canvas
+              ref={stepResponseCanvasRef}
+              width={500}
+              height={250}
+              className="border border-gray-200 rounded"
+            />
+          </div>
+          <div className="mt-3 text-xs text-gray-500 text-center">
+            P={pidValues.rate[selectedAxis]?.kp.toFixed(2)} | I={pidValues.rate[selectedAxis]?.ki.toFixed(2)} | D={pidValues.rate[selectedAxis]?.kd.toFixed(3)}
+          </div>
+        </div>
+      </div>
 
       {/* Angle Control PIDs */}
       {tuningMode === 'angle' && (

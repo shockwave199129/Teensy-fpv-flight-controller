@@ -481,6 +481,33 @@ void process_channel_mapping(uint16_t* raw_channels, EnhancedRcData* data) {
   data->pitch = apply_expo_curve(data->pitch, profile->pitch_expo) * profile->max_pitch_rate;
   data->yaw = apply_expo_curve(data->yaw, profile->yaw_expo) * profile->max_yaw_rate;
   data->throttle = apply_expo_curve(data->throttle, profile->throttle_expo);
+  
+  // Beginner throttle limit (profile 0 = Beginner)
+  if (rc_config.current_rate_profile == 0) {
+    data->throttle = constrain(data->throttle, 0.0f, BEGINNER_THROTTLE_LIMIT);
+  }
+  
+  // Apply PT1 RC smoothing filter
+  float alpha = profile->rc_smoothing_factor;
+  if (alpha > 0.001f && alpha < 1.0f) {
+    static float smooth_roll = 0, smooth_pitch = 0, smooth_yaw = 0, smooth_throttle = 0;
+    static bool rc_smooth_init = false;
+    if (!rc_smooth_init) {
+      smooth_roll = data->roll;
+      smooth_pitch = data->pitch;
+      smooth_yaw = data->yaw;
+      smooth_throttle = data->throttle;
+      rc_smooth_init = true;
+    }
+    smooth_roll     += alpha * (data->roll     - smooth_roll);
+    smooth_pitch    += alpha * (data->pitch    - smooth_pitch);
+    smooth_yaw      += alpha * (data->yaw      - smooth_yaw);
+    smooth_throttle += alpha * (data->throttle - smooth_throttle);
+    data->roll     = smooth_roll;
+    data->pitch    = smooth_pitch;
+    data->yaw      = smooth_yaw;
+    data->throttle = smooth_throttle;
+  }
 }
 
 float apply_expo_curve(float input, float expo) {

@@ -1,11 +1,74 @@
 # FPV Drone Project with Teensy 4.1
 
-A complete FPV drone flight controller firmware and desktop configuration application with **dual IMU sensor fusion**, **dynamic adaptive filtering**, and **advanced flight modes**.
+A complete FPV drone flight controller firmware and desktop configuration application with **dual IMU sensor fusion**, **dynamic adaptive filtering**, **flight-smoothness tuning**, **beginner-oriented safety defaults**, and **advanced flight modes**.
+
+## Table of contents
+
+- [Quick start — how to use](#quick-start--how-to-use-this-project)
+- [Recent updates](#recent-updates-latest)
+- [Project overview & key features](#-key-features-code-driven-summary)
+- [Hardware & pin mapping](#hardware-requirements)
+- [Safety & calibration](#-important-safety-notice-)
+- [Installation (firmware & desktop app)](#installation)
+- [Using the desktop configurator](#usage)
+- [Flight modes](#flight-modes)
+- [Serial / CLI commands](#serial-commands)
+- [More CLI (safety, calibration, redundancy)](#serial-commands-safety-calibration-redundancy)
+- [RC channels & rate profiles](#rc-channel-functions)
+- [Safety features](#safety-features)
+- [Sensor redundancy](#sensor-redundancy-system)
+- [Troubleshooting & development](#troubleshooting)
+- [Credits & legal](#credits)
+- [Appendix: Advanced tuning](#appendix-advanced-tuning-and-implementation-reference)
+
+---
+
+## Quick start — how to use this project
+
+Follow this order the first time (and after major firmware changes):
+
+| Step | Action |
+|------|--------|
+| **1** | **Hardware**: Wire Teensy 4.1 per [Pin mapping](#pin-mapping). Connect ESCs (props **off**), RC RX, battery sense, optional GPS/I2C sensors. |
+| **2** | **Flash firmware**: Open `firmware/fpv_drone_teensy/fpv_drone_teensy.ino` in **Arduino IDE + Teensyduino**. Board: **Teensy 4.1**, USB: **Serial**. Install libraries (**FastLED**, etc.). **Upload**. |
+| **3** | **Serial check**: Open serial monitor at **115200 baud**. You should see boot messages and `help` working. |
+| **4** | **Desktop app**: `cd desktop_app && npm install`. Dev: `npm run dev` (starts Vite + Electron). Production UI: `npm run build` then `npm start`. |
+| **5** | **Connect app**: In the app, choose the Teensy **COM/tty** port and connect. Pages are gated until connected. |
+| **6** | **Calibrate** (required to arm): Gyro → Accel → Mag → ESC (props off) → RC mapping. Use **Calibration Wizard** / **Sensor Calibration** or CLI (`calibrate gyro`, etc.). |
+| **7** | **Save**: Use **Save Config to File** in the sidebar (JSON export) and/or firmware `save calibration` / EEPROM save as documented below. |
+| **8** | **Tune**: **PID Tuning**, **Motor Config**, **Receiver** rate profiles. Start in **Stabilize**; use **Beginner** profile (rate profile **0**) for first flights. |
+| **9** | **Pre-flight**: **Safety Status** page; throttle low; level craft; GPS modes only with fix if required. |
+| **10** | **Fly**: Arm via stick sequence (see firmware `constants.h`: throttle low + yaw right, hold ~2 s). Disarm: throttle low + yaw left, hold **~0.75 s** (longer hold reduces accidental disarm). |
+
+**Packaging the desktop app** (optional): `npm run generate-icons` (requires dev deps) then `npm run dist` or `npm run dist-linux` / `dist-win` / `dist-mac`. See `desktop_app/public/BINARY_ASSETS_TODO.md` for asset notes.
+
+---
+
+## Recent updates (latest)
+
+### Firmware — smoothness, stability, beginner safety
+
+- **PID fixes**: Per-axis D-term filtering; adaptive gains computed from **stored base gains** (no runaway drift); **throttle pass-through** on PID output; **per-mode angle limits** (`MAX_ANGLE_*` for stabilize / alt hold / pos hold).
+- **Dual IMU path**: When `ENABLE_DUAL_IMU` is on, **mag / baro / GPS / sonar / battery** still update every loop; fused IMU gets **calibration** applied.
+- **Filtering**: **Gyro PT1 LPF** (~200 Hz) before dynamic notches; **accel PT1 LPF** (~40 Hz) before Mahony; **Mahony Ki** enabled for gyro bias learning; **RC smoothing** uses profile `rc_smoothing_factor` as a PT1 filter.
+- **Motor mix**: **Airmode-style** output shifting, **sqrt thrust linearization**, **slew rate limiting** on motor commands; **battery sag compensation** (`compensate_battery_voltage_sag`) when enabled on the motor feature struct.
+- **PID extras**: **TPA** (throttle PID attenuation), **I-term relax** on fast stick moves.
+- **Horizon mode**: `FLIGHT_MODE_HORIZON` — blends angle-rate setpoints from stick deflection before the rate loop (self-level near center, more rate-like at full stick).
+- **Safety**: Disarm hold **~750 ms**; battery warnings aligned with **`LOW_VOLTAGE_THRESHOLD` / `CRITICAL_VOLTAGE_THRESHOLD`** in `constants.h`; **pre-arm** checks (RC valid, throttle min, level, baro/mag freshness); **crash detection** with auto-disarm; **critical battery** → **RTH** if GPS fix + min sats, else emergency descent path.
+- **Defaults**: Compile-time **beginner-oriented** style in `constants.h`; **Beginner rate profile (0)** applies **`BEGINNER_THROTTLE_LIMIT`** (e.g. 70% max throttle).
+
+### Desktop app — configurator features
+
+- **Save / Load config JSON** from the sidebar (Electron file dialog + IPC).
+- **New pages**: **Board Config**, **GPS Map** (canvas trail / home / RTH UI), **OSD Layout** editor, **Modes & AUX** (range-style mode slots), **Blackbox** viewer (Chart.js, CSV export).
+- **Fixes**: Sensor Redundancy, Dual IMU, Dynamic Filtering, System Info, Motor Config wired to shared `sendCommand` / connection props where applicable.
+- **Icons**: `npm run generate-icons` builds PNG/ICO (and ICNS on macOS when tools available).
+
+---
 
 ## Project Overview
 
-This project implements a **professional-grade flight controller** for quadcopter drones using the Teensy 4.1 microcontroller, featuring **Phase 1 & 2 stability enhancements** and a modern **desktop configuration application** built with Electron and React.js.
-
+This project implements a **professional-grade flight controller** for quadcopter drones using the Teensy 4.1 microcontroller, with **cascaded PID**, **sensor fusion**, **redundancy**, and a **Betaflight/iNav-style desktop configurator** (Electron + React + Vite).
 
 ## ✨ Key Features (Code-Driven Summary)
 
@@ -25,10 +88,11 @@ This project implements a **professional-grade flight controller** for quadcopte
 - **Optical Flow Positioning:** PMW3901, PAA5100, ADNS3080 support, dead-reckoning fallback for GPS
 - **Advanced Mahony AHRS Filter:** Quaternion-based attitude estimation, adaptive fusion
 - **Extended Kalman Filter (EKF):** Position/velocity fusion from IMU, GPS, optical flow
-- **Cascaded PID Control:** Rate + angle loops, adaptive gain scheduling, feedforward, setpoint weighting, harmonic compensation, flight phase detection
-- **Dynamic Adaptive Filtering System:** FFT-based gyro analysis, auto-tuning notch filters, vibration detection, RPM feed-forward notch tuning
-- **Advanced Flight Modes:** Acro+, Sport, Cinematic, GPS Rescue, Turtle, Launch/Land Assist, RTH, Headless, Altitude/Position Hold
-- **Safety Functions:** Watchdog timers, failsafe, emergency stop, calibration-based arming prevention, battery/RC/GPS checks, LED/audio feedback
+- **Cascaded PID Control:** Rate + angle loops, adaptive gain scheduling from **base gains**, TPA, I-term relax, feedforward, setpoint weighting, per-axis D-term filtering, harmonic compensation, flight phase detection
+- **Dynamic Adaptive Filtering System:** FFT-based gyro analysis, gyro **PT1 LPF** before notches, auto-tuning notch filters, vibration detection, RPM feed-forward notch tuning
+- **Motor output chain:** Airmode-style mix headroom, optional thrust linearization, slew limiting, battery sag compensation
+- **Advanced Flight Modes:** Acro+, Sport, Cinematic, GPS Rescue, Turtle, Launch/Land Assist, RTH, Headless, Altitude/Position Hold, **Horizon** (angle/rate blend by stick)
+- **Safety Functions:** Pre-arm checks (RC, throttle min, level, sensor freshness), crash detection auto-disarm, critical-battery RTH or descent, longer disarm hold, unified battery thresholds, failsafe, emergency stop, LED/audio feedback
 - **Calibration System:** 6-position accelerometer, magnetometer (figure-8, timer), ESC, RC, persistent storage with CRC validation
 - **Blackbox Logging:** SD card and serial logging of flight data, events, and system status
 - **LED Control:** RGB LED patterns, status indication, error/warning feedback, custom patterns
@@ -57,9 +121,16 @@ This project implements a **professional-grade flight controller** for quadcopte
   - **Flight Modes Configuration**: GPS-aware mode selection with safety blocking
   - **Dual IMU Monitoring**: Real-time dual IMU status and health
   - **Dynamic Filtering Visualization**: Spectral analysis and filter tuning
-  - **Sensor Redundancy Dashboard** (NEW): Real-time redundancy monitoring and synthetic sensor display
+  - **Sensor Redundancy Dashboard**: Real-time redundancy monitoring and synthetic sensor display
+  - **Board Configuration**: Feature toggles, mixer diagram, board orientation preview, motor assignment table
+  - **GPS Map**: Live position, home, trail, distance rings, RTH controls (canvas-based)
+  - **OSD Layout**: Drag-and-drop virtual OSD grid, element visibility and sizing
+  - **Modes & AUX**: Betaflight-style AUX range bars and arming-prevention flags
+  - **Blackbox Logs**: Log listing, Chart.js replay, CSV export
+  - **Configuration Save/Load**: Export/import full **JSON** config via Electron dialog (sidebar)
   - **LED Pattern Customization**: RGB LED configuration
   - **System Information**: Comprehensive sensor detection and diagnostics
+  - **Icon generation**: `npm run generate-icons` for `electron-builder` assets
 - ✅ **Advanced Safety Features**:
   - **Safety Status Page**: Dedicated comprehensive safety monitoring
   - **GPS Requirement Visualization**: Real-time GPS dependency tracking
@@ -172,11 +243,15 @@ This project implements a **professional-grade flight controller** for quadcopte
 
 3. **Compile and Upload**
    ```bash
-   # Open firmware/fpv_drone_teensy.ino in Arduino IDE
+   # Open firmware/fpv_drone_teensy/fpv_drone_teensy.ino in Arduino IDE
    # Select Tools > Board > Teensy 4.1
    # Select Tools > USB Type > Serial
    # Click Upload
    ```
+   - **Note:** Dynamic filtering uses **CMSIS-DSP** (`arm_math.h`). Teensyduino typically provides this; if you see missing `arm_math` errors, enable **Audio** or install **Teensyduino** full package per PJRC docs.
+
+4. **Firmware configuration (compile-time)**  
+   Edit `firmware/fpv_drone_teensy/constants.h` and `config.h` for: **frame type** (`FRAME_TYPE`), **dual IMU** (`ENABLE_DUAL_IMU`), **optical flow**, **battery cell count**, **flying style** / aggressiveness, **beginner throttle limit**, voltage scale, etc.
 
 ### Desktop Application Setup
 
@@ -198,13 +273,16 @@ This project implements a **professional-grade flight controller** for quadcopte
    npm run dev
    ```
 
-4. **Build for Production**
+4. **Icons (optional, before packaging)**
    ```bash
-   # Build the application
-   npm run build
-   
-   # Create distributable packages
-   npm run dist
+   npm run generate-icons
+   ```
+
+5. **Build for Production**
+   ```bash
+   npm run build          # Vite production bundle
+   npm run dist           # electron-builder (current OS)
+   npm run dist-all       # win + mac + linux (where supported)
    ```
 
 ## Enhanced Desktop Application Safety Features
@@ -244,6 +322,18 @@ The desktop application now includes comprehensive safety monitoring and control
 - **Visual Indicators**: Color-coded severity levels
 
 ## Usage
+
+### Desktop app — main areas (after connect)
+
+| Area | Purpose |
+|------|---------|
+| **Setup & Calibration** | Safety Status, Calibration Wizard, Sensor Calibration, **Board Config**, **GPS Map**, System Info |
+| **Basic Configuration** | Dashboard, Motor Config, RC Receiver, **OSD Layout** |
+| **Flight Control** | PID Tuning, Flight Modes, **Modes & AUX** |
+| **Advanced Tools** | Dual IMU, Dynamic Filtering, Sensor Redundancy, **Blackbox**, CLI, Advanced Performance |
+| **Sidebar** | Serial connect, **Save Config to File** / **Load Config from File** (JSON) |
+
+Telemetry and commands use **USB serial at 115200 baud** unless you change the firmware.
 
 ### Initial Setup
 
@@ -507,10 +597,11 @@ reset calibration    # Clears all calibration data
 ### Standard Flight Modes
 1. **Manual (Rate Mode)** - Direct gyro rate control
 2. **Stabilize** - Auto-level using IMU
-3. **Altitude Hold** - Maintain current altitude
-4. **Position Hold** - GPS position lock
+3. **Altitude Hold** - Maintain current altitude (tighter max tilt than stabilize — see `MAX_ANGLE_ALTITUDE_HOLD`)
+4. **Position Hold** - GPS position lock (stricter max tilt — `MAX_ANGLE_POSITION_HOLD`)
 5. **Return to Home** - Automatic return to takeoff point
 6. **Headless Mode** - Forward direction locked to home
+7. **Horizon** - Blends **angle** and **rate** setpoints from stick deflection: near-center sticks behave like stabilize; large deflections behave more like rate mode. Select via firmware / future CLI; add to desktop **Flight Modes** when serial mode name is exposed.
 
 ### Advanced Flight Modes (Phase 2)
 1. **Acro+** - Rate mode with automatic recovery at 60° tilt
@@ -568,7 +659,10 @@ dshot save                              # Save ESC settings
 
 ## Serial Commands
 
-The flight controller accepts comprehensive commands via serial:
+The flight controller accepts commands over **USB/UART at 115200 baud** (default). The **authoritative list** is implemented in firmware (`communication.cpp` / related handlers). The desktop app sends the same strings via IPC.
+
+- **In-app reference:** `desktop_app/public/cli-guide.md`  
+- **Tip:** Type `help` on the serial console after flashing to see what your build supports.
 
 ### Basic Commands
 ```bash
@@ -738,11 +832,12 @@ The firmware supports **19 different channel functions** for flexible RC mapping
 
 The system includes **3 configurable rate profiles**:
 
-#### **Profile 0: Beginner**
+#### **Profile 0: Beginner** (default rate profile index `0`)
 - Max Roll/Pitch Rate: 200°/s
 - Max Yaw Rate: 180°/s
 - Expo: 0.0 (linear response)
-- RC Smoothing: 0.7 (heavy smoothing)
+- RC Smoothing: 0.7 — applied as a **PT1 low-pass** on roll/pitch/yaw/throttle outputs
+- **Throttle cap:** `BEGINNER_THROTTLE_LIMIT` in `constants.h` (e.g. **70%** of full stick range) applies only when this profile is active
 
 #### **Profile 1: Sport**
 - Max Roll/Pitch Rate: 400°/s
@@ -771,7 +866,10 @@ The system includes **3 configurable rate profiles**:
 - ✅ **GPS Requirement Enforcement** - Prevents arming without GPS when GPS features are configured
 - ✅ **Battery Connection Detection** - Prevents arming without battery connected
 - ✅ **Enhanced Battery Monitoring** - Dual voltage monitoring via main sensor and ESC telemetry
-- ✅ **Pre-Flight Safety Checks** - Comprehensive system validation before arming
+- ✅ **Pre-Flight Safety Checks** - RC valid, throttle low, level check, sensor freshness, calibration, GPS rules
+- ✅ **Crash detection** - High-g / stall heuristics with timed auto-disarm when armed
+- ✅ **Disarm stick hold** - Longer hold required to reduce accidental in-flight disarm
+- ✅ **Critical battery actions** - RTH when GPS adequate; otherwise pilot warning / descent path
 
 ### 🛡️ Enhanced Safety System (New Features)
 
@@ -808,10 +906,11 @@ Advanced battery monitoring with multiple sources:
 - **ESC Voltage Telemetry**: More accurate voltage from DShot ESCs (when available)
 - **Automatic Selection**: Uses ESC telemetry when available (more accurate)
 
-**Battery Status Levels:**
-- **GOOD**: Above 11.5V (normal operation)
-- **LOW**: 10.5V - 11.5V (prepare to land)
-- **CRITICAL**: Below 10.5V (land immediately)
+**Battery status levels** (aligned with `constants.h` for a default **3S** pack):
+- **Low warning**: below **`LOW_VOLTAGE_THRESHOLD`** (default **10.5 V** pack)
+- **Critical**: below **`CRITICAL_VOLTAGE_THRESHOLD`** (default **9.9 V** pack) — land immediately; firmware may trigger **RTH** if GPS is good, else emergency descent logic
+
+> **Desktop app:** If the **Flight Modes** or dashboard still shows older thresholds (e.g. 11.5 V / 10.5 V), treat the **firmware / `constants.h`** values as source of truth until the UI is updated.
 
 **Commands:**
 ```bash
@@ -831,12 +930,14 @@ Comprehensive safety validation before allowing arming:
 safety check                # Complete pre-flight safety validation
 ```
 
-**Checks Performed:**
-1. **Calibration Status** - All required sensors calibrated
-2. **Battery Status** - Battery connected and voltage adequate
-3. **RC Signal** - Valid RC communication
-4. **GPS Requirements** - GPS ready if GPS functions configured
-5. **Sensor Health** - Critical sensors operational
+**Checks performed (firmware):**
+1. **Calibration** — gyro / accel / system calibration flags
+2. **Critical sensors** — IMU health, battery present, etc.
+3. **RC** — `signal_valid`, throttle at or below **arm threshold**
+4. **Attitude** — roll/pitch within **~10°** of level for arming
+5. **Baro / mag** — if marked healthy, data must not be **stale** (timeout vs `last_update`)
+6. **GPS** — if any GPS-dependent RC function is configured, fix + minimum satellites (or synthetic GPS confidence) as implemented
+7. **General sensor health** — as reported by redundancy / IMU paths
 
 **Safety Check Results:**
 - **✓ SAFE TO ARM** - All checks passed, ready for flight
@@ -894,9 +995,9 @@ emergency mode                 # Activate maximum stability emergency mode
 recovery mode                  # Reset and recalibrate redundancy system
 ```
 
-## Serial Commands
+## Serial commands (safety, calibration, redundancy)
 
-The flight controller accepts comprehensive commands via serial:
+Additional CLI groups beyond the [main Serial Commands](#serial-commands) section:
 
 ### Enhanced Safety Commands
 ```bash
@@ -957,41 +1058,37 @@ recovery mode                       # Reset and recalibrate redundancy system
 ### Project Structure
 
 ```
-fpv_drone_project/
-├── firmware/                 # Teensy 4.1 firmware
-│   ├── fpv_drone_teensy.ino # Main Arduino sketch
-│   ├── config.h             # Configuration and constants
-│   ├── sensors.h            # Sensor drivers and detection
-│   ├── receivers.h          # RC receiver protocols
-│   ├── pid_controller.h     # PID control implementation
-│   ├── motor_control.h      # Motor and ESC control
-│   ├── flight_modes.h       # Flight mode logic
-│   ├── led_control.h        # LED patterns and control
-│   └── communication.h      # Serial communication
-├── desktop_app/             # Electron + React app
-│   ├── main.js             # Electron main process
-│   ├── preload.js          # Electron preload script
-│   ├── src/                # React source code
-│   │   ├── App.jsx         # Main application component
-│   │   ├── components/     # Reusable React components
-│   │   │   └── SerialConnection.jsx
-│   │   └── pages/          # Configuration pages
-│   │       ├── Dashboard.jsx
-│   │       ├── CalibrationWizard.jsx
-│   │       ├── SensorCalibration.jsx
-│   │       ├── PIDTuning.jsx
-│   │       ├── MotorConfig.jsx
-│   │       ├── ReceiverConfig.jsx
-│   │       ├── FlightModes.jsx
-│   │       ├── LEDConfig.jsx
-│   │       ├── SafetyStatus.jsx
-│   │       ├── SensorRedundancy.jsx
-│   │       ├── SystemInfo.jsx
-│   │       ├── DualIMUMonitor.jsx
-│   │       ├── DynamicFiltering.jsx
-│   │       └── OpticalFlowMonitor.jsx
-│   └── package.json        # Node.js dependencies
-└── README.md               # This file
+Teensy-fpv-flight-controller/
+├── firmware/fpv_drone_teensy/     # Teensy 4.1 sketch + modules
+│   ├── fpv_drone_teensy.ino      # Main loop, sensors, arm/disarm, EEPROM
+│   ├── config.h                  # Pins, structs, flight modes enum
+│   ├── constants.h               # Thresholds, PID defaults, feature flags
+│   ├── pid_controller.h          # Cascaded PID, TPA, I-relax, horizon blend
+│   ├── motor_control.cpp/.h      # ESC protocols, mixing, airmode, sag comp
+│   ├── sensors.cpp/.h            # IMU/mag/baro/GPS, fusion, calibration hooks
+│   ├── receivers.cpp/.h          # PPM/SBUS/iBUS/ELRS, mapping, rate profiles
+│   ├── dynamic_filtering.cpp/.h  # Notch + gyro LPF, FFT path
+│   ├── safety_functions.cpp      # Battery, pre-arm, RC loss, RTH helpers
+│   ├── communication.cpp/.h      # CLI / serial commands
+│   ├── esc_dma.cpp/.h            # DShot DMA (Teensy 4.x)
+│   ├── flight_modes.cpp/.h
+│   ├── sensor_redundancy.cpp/.h
+│   └── ...                       # dual_imu, optical_flow, blackbox, etc.
+├── desktop_app/
+│   ├── main.js                   # Electron main, serial, IPC, file dialogs
+│   ├── preload.js                # contextBridge API
+│   ├── scripts/generate-icons.js # PNG/ICO (and ICNS) from SVG
+│   ├── public/                   # icon.svg, cli-guide.md, assets
+│   ├── src/
+│   │   ├── App.jsx               # Routes, nav, save/load config JSON
+│   │   ├── components/
+│   │   └── pages/                # Dashboard, Safety, Calibration, PID,
+│   │                             # MotorConfig, ReceiverConfig, FlightModes,
+│   │                             # ModesConfig, Blackbox, GPSMap, OSDConfig,
+│   │                             # BoardConfig, SensorRedundancy, CLI, ...
+│   └── package.json
+├── README.md
+└── LICENSE
 ```
 
 ## Troubleshooting
@@ -1064,288 +1161,72 @@ The authors are not responsible for any damage or injury caused by the use of th
 - **React**: Meta/Facebook
 - **ESC Firmware**: BLHeli team, BlueJay developers, AM32 team
 
-## Performance Improvements
+## Performance overview
 
-**Phase 1 & 2 + Sensor Redundancy Performance Gains:**
-- **70-85% reduction** in oscillations and vibrations
-- **50-70% faster** disturbance rejection and recovery
-- **98%+ improvement** in hover precision and stability
-- **Significantly enhanced** wind resistance and turbulence handling
-- **Ultra-smooth** flight characteristics for cinematography
-- **Advanced safety features** with multiple redundancy layers
-- **Sensor failure tolerance** with automatic synthetic sensor generation
-- **Professional-grade** flight performance comparable to commercial systems
+Expectations depend on **airframe, props, PID tune, and sensors**. This stack is designed for:
 
-**Flight Characteristics:**
-- **Rock-solid hover** with minimal drift
-- **Lightning-fast** response to stick inputs
-- **Smooth as silk** operation in cinematic mode
-- **Aggressive maneuvers** possible in sport mode
-- **Automatic recovery** features for safety
-- **GPS-based rescue** for emergency situations
-- **Optical flow** positioning for GPS-denied environments
-- **Dual IMU redundancy** for maximum reliability
-- **Graceful degradation** when sensors fail with synthetic alternatives
-- **Emergency stabilization** modes for critical sensor failures
+| Goal | What helps |
+|------|------------|
+| **Smoother flight** | Gyro LPF + dynamic notches, accel LPF into Mahony, RC PT1 smoothing, motor slew limit |
+| **Stable hover** | Cascaded angle/rate PID, baro/GPS when enabled, good vibration isolation |
+| **Beginners** | Default beginner-style constants, rate profile **0**, throttle cap, pre-arm checks, Horizon mode (firmware) |
+| **Safety** | Calibration gating, redundancy/synthetic fallbacks, battery/RTH logic, crash heuristics |
 
-## 🚀 Phase 3: Advanced Flight Stability & Characteristics Enhancement
-
-### 🎯 **Major Improvements Added**
-
-#### **1. 🧠 Adaptive PID Control System**
-- **Adaptive Gain Scheduling**: Automatically adjusts PID gains based on flight conditions
-- **Flight Phase Detection**: Optimizes control characteristics for hover, forward flight, and aggressive maneuvers
-- **Setpoint Weighting**: Reduces proportional kick during rapid setpoint changes
-- **Feedforward Control**: Improves response time and reduces tracking error
-- **Performance Metrics**: Real-time monitoring of control effort and efficiency
-
-#### **2. 🚁 Enhanced Motor Control**
-- **RPM-Based Dynamic Filtering**: Real-time notch filtering based on motor harmonics
-- **Motor Health Monitoring**: Temperature, vibration, and efficiency tracking
-- **Predictive Motor Control**: Compensates for motor response lag
-- **Battery Voltage Compensation**: Maintains consistent performance as battery drains
-- **Individual Motor Scaling**: Compensates for motor-to-motor variations
-
-#### **3. 🔄 Advanced Sensor Fusion**
-- **Multi-Rate Processing**: Optimized update rates for different sensor types
-- **Adaptive Fusion Weights**: Dynamic weighting based on sensor quality
-- **Extended Kalman Filter**: State estimation with position, velocity, and acceleration
-- **Sensor Cross-Validation**: Detects and rejects outlier readings
-- **Environmental Adaptation**: Adjusts fusion parameters based on flight conditions
-
-### 📊 **Flight Stability Enhancements**
-
-#### **Hover Performance**
-- **±0.1° attitude stability** in calm conditions
-- **Sub-centimeter position hold** with GPS
-- **Minimal drift** in attitude mode
-- **Smooth response** to stick inputs
-
-#### **Dynamic Response**
-- **<50ms response time** for rate commands
-- **Zero overshoot** in attitude transitions
-- **Consistent feel** across all flight phases
-- **Predictable handling** in all conditions
-
-#### **Disturbance Rejection**
-- **Wind compensation** up to 10 m/s
-- **Vibration immunity** through harmonic filtering
-- **Prop wash resistance** during descents
-- **Thermal handling** for varying air density
-
-### 🛠 **Implementation Features**
-
-#### **Adaptive PID Features**
-```cpp
-// Flight phase-specific optimization
-switch (phase) {
-  case PHASE_HOVER:
-    set_flight_characteristics(1.0f, 1.8f);  // Max stability
-    break;
-  case PHASE_AGGRESSIVE_MANEUVERS:
-    set_flight_characteristics(2.0f, 0.8f);  // Max responsiveness
-    break;
-}
-
-// Adaptive gain scheduling based on load factor
-float adaptive_multiplier = disturbance_factor * load_factor;
-cascaded_gains.rate_roll.kp *= (0.8f + 0.4f * adaptive_multiplier);
-```
-
-#### **Enhanced Motor Control**
-```cpp
-// RPM-based harmonic filtering
-float fundamental_freq = (motor_rpm * 14) / 60.0f;
-advanced_motor.rpm_notch_frequencies[i][0] = fundamental_freq;
-advanced_motor.rpm_notch_frequencies[i][1] = fundamental_freq * 2;
-
-// Battery voltage compensation
-float voltage_ratio = baseline_voltage / current_voltage;
-float compensation_factor = constrain(voltage_ratio, 0.8f, 1.3f);
-```
-
-#### **Advanced Sensor Fusion**
-```cpp
-// Adaptive fusion weights based on sensor quality
-if (sensor_quality.imu_quality_score > 90) {
-  fusion.imu_confidence_weight = 1.0f;
-} else {
-  fusion.imu_confidence_weight = sensor_quality.imu_quality_score / 100.0f;
-}
-```
-
-### 📈 **Performance Metrics**
-
-#### **Control Performance**
-- **Control Effort**: Percentage of available control authority being used
-- **Efficiency Score**: How efficiently the system maintains control
-- **Oscillation Frequency**: Detection of unwanted oscillations
-- **Response Time**: Time to reach setpoint changes
-
-#### **Motor Performance**
-- **RPM Stability**: Variance in motor speeds
-- **Temperature Monitoring**: Real-time motor temperature tracking
-- **Efficiency Scores**: Individual motor efficiency calculations
-- **Vibration Levels**: Detection of motor-induced vibrations
-
-#### **Sensor Quality**
-- **IMU Quality Score**: Based on noise levels and consistency
-- **GPS Accuracy Score**: Based on HDOP and satellite count
-- **Magnetometer Quality**: Based on calibration and stability
-- **Barometer Stability**: Based on pressure variance
-
-### 🎛 **Configuration Options**
-
-#### **PID Tuning Parameters**
-```cpp
-struct AdvancedPIDFeatures {
-  bool adaptive_gains_enabled;
-  bool setpoint_weighting_enabled;
-  bool feedforward_enabled;
-  bool harmonic_compensation_enabled;
-  float aggressiveness_level;        // 0.1-2.0
-  float smoothness_factor;           // 0.1-2.0
-};
-```
-
-#### **Motor Control Settings**
-```cpp
-struct AdvancedMotorFeatures {
-  bool rpm_based_filtering_enabled;
-  bool motor_health_monitoring_enabled;
-  bool advanced_mixing_enabled;
-  bool predictive_control_enabled;
-  bool battery_compensation_enabled;
-};
-```
-
-#### **Sensor Fusion Configuration**
-```cpp
-struct EnhancedSensorFusion {
-  bool adaptive_fusion_enabled;
-  bool extended_kalman_filter_enabled;
-  bool cross_validation_enabled;
-  bool environmental_adaptation_enabled;
-};
-```
-
-### 🔧 **Tuning Guidelines**
-
-#### **Conservative Setup** (Recommended for beginners)
-- **Aggressiveness Level**: 0.7
-- **Smoothness Factor**: 1.5
-- **Adaptive Gains**: Enabled with moderate response
-- **All Safety Features**: Enabled
-
-#### **Sport Setup** (For experienced pilots)
-- **Aggressiveness Level**: 1.5
-- **Smoothness Factor**: 1.0
-- **Advanced Features**: All enabled
-- **Predictive Control**: Enabled
-
-#### **Race Setup** (Maximum performance)
-- **Aggressiveness Level**: 2.0
-- **Smoothness Factor**: 0.8
-- **Feedforward**: Maximum
-- **Setpoint Weighting**: Disabled for instant response
-
-### 📚 **CLI Commands for Advanced Features**
-
-#### **PID Control Commands**
-```bash
-# Enable adaptive PID gains
-pid adaptive enable
-
-# Set flight characteristics
-pid characteristics aggressive 1.5 smooth 1.2
-
-# View performance metrics
-pid performance
-
-# Enable flight phase detection
-pid phase_detection enable
-```
-
-#### **Motor Control Commands**
-```bash
-# Enable RPM-based filtering
-motor rpm_filter enable
-
-# Monitor motor health
-motor health
-
-# Test individual motor response
-motor characterize 1
-
-# View motor efficiency scores
-motor efficiency
-```
-
-#### **Sensor Fusion Commands**
-```bash
-# Enable advanced sensor fusion
-fusion enhanced enable
-
-# Check sensor quality scores
-sensor quality
-
-# Detect sensor outliers
-sensor outliers
-
-# View fusion weights
-fusion weights
-```
-
-### 🎯 **Expected Flight Improvements**
-
-#### **Immediate Benefits**
-- **Smoother hover performance** with reduced drift
-- **Better wind resistance** through adaptive gains
-- **Consistent feel** across different flight phases
-- **Reduced vibration sensitivity** through harmonic filtering
-
-#### **Advanced Benefits**
-- **Professional-grade stability** comparable to commercial drones
-- **Optimized battery life** through efficiency monitoring
-- **Predictive failure detection** via motor health monitoring
-- **Adaptive performance** that improves with flight time
-
-#### **Competition-Level Performance**
-- **Sub-degree attitude accuracy** for precision flying
-- **Millisecond response times** for racing applications
-- **Advanced failure tolerance** through sensor redundancy
-- **Professional tuning capabilities** for expert pilots
-
-### 🚨 **Safety Enhancements**
-
-#### **Automatic Safety Systems**
-- **Motor health monitoring** with automatic warnings
-- **Sensor outlier rejection** to prevent erratic behavior
-- **Battery compensation** to maintain control authority
-- **Vibration detection** with automatic filtering adjustment
-
-#### **Predictive Safety**
-- **Motor failure prediction** based on efficiency trends
-- **Sensor degradation detection** before complete failure
-- **Performance degradation warnings** for maintenance scheduling
-- **Environmental adaptation** for challenging conditions
-
-### 📊 **Monitoring & Diagnostics**
-
-#### **Real-Time Telemetry**
-- **Control loop performance** metrics
-- **Motor health** and efficiency data
-- **Sensor quality** scores
-- **Environmental** conditions
-
-#### **Flight Log Analysis**
-- **Performance trends** over time
-- **Efficiency improvements** tracking
-- **Failure prediction** data
-- **Tuning optimization** suggestions
-
-This Phase 3 enhancement transforms the firmware from a basic flight controller into a **professional-grade, adaptive flight control system** with characteristics rivaling commercial platforms while maintaining the flexibility and customization benefits of open-source development.
+Avoid treating unbench-tested **percentage improvement** claims as guarantees—always tune and verify on your quad.
 
 ---
 
-**Happy Flying! 🚁** 
+## Appendix: Advanced tuning and implementation reference
+
+Use this when you outgrow defaults and are editing **C++** (most advanced knobs are still **compile-time** unless exposed in `communication.cpp`).
+
+### Where to look
+
+| Topic | Primary files |
+|-------|----------------|
+| Rate / angle PID, TPA, I-relax, Horizon blend, adaptive gains from **base_gains** | `pid_controller.h` |
+| Motor mix, airmode shift, thrust curve, slew, sag comp | `motor_control.cpp`, `motor_control.h` |
+| Gyro notch + PT1 LPF | `dynamic_filtering.cpp` |
+| Accel LPF, Mahony, fusion entry | `sensors.cpp` |
+| RC expo, profiles, smoothing | `receivers.cpp` |
+| Thresholds, defaults, feature flags | `constants.h`, `config.h` |
+| CLI truth | `communication.cpp` |
+
+### Adaptive gains (pattern)
+
+Gains are **recomputed from stored `base_gains` each update** so adaptive scaling does not compound drift:
+
+```cpp
+float adaptive_multiplier = disturbance_factor * load_factor;
+cascaded_gains.rate_roll.kp  = base_gains.rate_roll.kp  * (0.8f + 0.4f * adaptive_multiplier);
+cascaded_gains.rate_pitch.kp = base_gains.rate_pitch.kp * (0.8f + 0.4f * adaptive_multiplier);
+// Yaw P/I and flight-phase helpers use the same base-gain idea.
+```
+
+Flight phase still calls `set_flight_characteristics(aggressiveness, smoothness)` to bias responsiveness vs smoothness.
+
+### Key structs (pointers only)
+
+- **`AdvancedPIDFeatures`** in `pid_controller.h` — adaptive PID, setpoint weighting, feedforward, TPA (`tpa_breakpoint`, `tpa_rate`), I-term relax (`conditional_integration`, `iterm_relax_threshold`, `integral_decay_rate`).
+- **`AdvancedMotorFeatures`** in `motor_control.h` — RPM filtering, health, predictive control, **`battery_compensation_enabled`** (sag compensation runs when true).
+- **`EnhancedSensorFusion`** / EKF / redundancy — see `sensors.h`, `sensor_redundancy.cpp`, and main loop integration.
+
+### Preset starting points (firmware tuning)
+
+These map to **`set_flight_characteristics(aggressiveness, smoothness)`** and related defaults—not all are user-facing in the desktop app yet.
+
+| Style | Aggressiveness | Smoothness | Notes |
+|-------|----------------|------------|--------|
+| **Conservative** | ~0.7 | ~1.5 | Good first hover / line-of-sight tests |
+| **Sport** | ~1.5 | ~1.0 | Balanced |
+| **Aggressive** | ~2.0 | ~0.8 | Snappier; verify no oscillation |
+
+Also use **desktop PID page** and **`set pid …`** CLI where implemented.
+
+### CLI caveat
+
+Commands such as `pid adaptive enable`, `motor rpm_filter enable`, or `fusion enhanced enable` appear in older docs as **examples**. Your build may not implement all of them. Always run **`help`** on the serial console and read **`communication.cpp`** for what is actually wired.
+
+---
+
+**Happy flying** 

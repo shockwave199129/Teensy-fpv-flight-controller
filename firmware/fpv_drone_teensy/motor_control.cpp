@@ -242,15 +242,57 @@ void MotorControl::apply_motor_mixing(PIDOutput& pid, int base_throttle) {
       default: mix = MIX_X4; break;
   }
 
-  // Compute outputs into local array then populate legacy struct for first 4 motors
-  int pwm[MAX_MOTORS];
+  // Compute raw mixed outputs
+  float raw[MAX_MOTORS];
+  float mix_min = 1e6f, mix_max = -1e6f;
   for(int m=0;m<MOTOR_COUNT;m++){
-      float out = base_throttle
+      raw[m] = base_throttle
                   + mix[m][0]*pid.roll
                   + mix[m][1]*pid.pitch
                   + mix[m][2]*pid.yaw;
-      pwm[m] = constrain((int)out, MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
+      if (raw[m] < mix_min) mix_min = raw[m];
+      if (raw[m] > mix_max) mix_max = raw[m];
   }
+  
+  // Airmode: shift the motor output range so PID authority is preserved at low throttle
+  if (motors_armed && base_throttle > MOTOR_MIN_THROTTLE) {
+    if (mix_min < MOTOR_MIN_THROTTLE) {
+      float shift = MOTOR_MIN_THROTTLE - mix_min;
+      for(int m=0;m<MOTOR_COUNT;m++) raw[m] += shift;
+    }
+    if (mix_max > MOTOR_MAX_THROTTLE) {
+      float shift = mix_max - MOTOR_MAX_THROTTLE;
+      for(int m=0;m<MOTOR_COUNT;m++) raw[m] -= shift;
+    }
+  }
+
+  // Thrust linearization: optional sqrt-based curve for linear throttle feel
+  for(int m=0;m<MOTOR_COUNT;m++){
+    float norm = ((float)raw[m] - MOTOR_MIN_THROTTLE) / (MOTOR_MAX_THROTTLE - MOTOR_MIN_THROTTLE);
+    norm = constrain(norm, 0.0f, 1.0f);
+    norm = sqrtf(norm);
+    raw[m] = MOTOR_MIN_THROTTLE + norm * (MOTOR_MAX_THROTTLE - MOTOR_MIN_THROTTLE);
+  }
+  
+  // Slew rate limiter: prevent abrupt motor changes that cause vibration
+  static int prev_pwm[MAX_MOTORS] = {0};
+  static bool slew_init = false;
+  const int max_slew = 80;
+  
+  int pwm[MAX_MOTORS];
+  for(int m=0;m<MOTOR_COUNT;m++){
+      int target = constrain((int)raw[m], MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
+      if (!slew_init) {
+        pwm[m] = target;
+      } else {
+        int delta = target - prev_pwm[m];
+        if (delta > max_slew) delta = max_slew;
+        if (delta < -max_slew) delta = -max_slew;
+        pwm[m] = prev_pwm[m] + delta;
+      }
+      prev_pwm[m] = pwm[m];
+  }
+  slew_init = true;
 
   // Map to struct (first 4) for backward compatibility
   if(MOTOR_COUNT>=4){
@@ -345,7 +387,9 @@ void MotorControl::update(PIDOutput& pid_output, bool armed_flag) {
   int base_throttle = map_throttle_to_protocol(pid_output.throttle + MOTOR_IDLE_THROTTLE);
   apply_motor_mixing(pid_output, base_throttle);
 
-  // Optional predictive control optimisation
+  // Apply battery voltage sag compensation
+  compensate_battery_voltage_sag();
+  
   // Send to ESCs
   if (esc_config.protocol >= ESC_PROTOCOL_DSHOT150) {
     uint16_t vals[MAX_MOTORS] = {0};
@@ -658,6 +702,26 @@ void MotorControl::apply_predictive_motor_control() {
   adjust_motor(1, motor_output.motor2);
   adjust_motor(2, motor_output.motor3);
   adjust_motor(3, motor_output.motor4);
+}
+
+void MotorControl::compensate_battery_voltage_sag() {
+  if (!advanced_motor.battery_compensation_enabled) return;
+  
+  extern SensorData sensor_data_global;
+  float current_voltage = sensor_data_global.battery_voltage;
+  
+  const float nominal_voltage = 12.6f; // 3S LiPo fully charged
+  const float min_compensation_voltage = 9.0f;
+  
+  if (current_voltage < min_compensation_voltage || current_voltage >= nominal_voltage) return;
+  
+  float scale = nominal_voltage / current_voltage;
+  scale = constrain(scale, 1.0f, 1.5f);
+  
+  motor_output.motor1 = constrain((int)(motor_output.motor1 * scale), MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
+  motor_output.motor2 = constrain((int)(motor_output.motor2 * scale), MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
+  motor_output.motor3 = constrain((int)(motor_output.motor3 * scale), MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
+  motor_output.motor4 = constrain((int)(motor_output.motor4 * scale), MOTOR_MIN_THROTTLE, MOTOR_MAX_THROTTLE);
 }
 
 // ============================================================================ 

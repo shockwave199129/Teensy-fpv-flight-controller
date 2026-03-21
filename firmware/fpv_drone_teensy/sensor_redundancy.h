@@ -47,6 +47,7 @@ public:
   FlightCapability get_flight_capability();
   FlightTuning get_adaptive_tuning();
   SyntheticSensorData get_synthetic_data();
+  SensorRedundancyConfig get_config();
   // ---------- NEW: synthetic sensor helpers ----------
   // These helpers are implemented in sensor_redundancy.cpp to provide fallback data when dedicated sensors fail.
   void update_synthetic_gps(const SensorData &sensors);

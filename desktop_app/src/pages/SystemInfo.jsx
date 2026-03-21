@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const SystemInfo = () => {
+const SystemInfo = ({ sendCommand, connected }) => {
   const [systemInfo, setSystemInfo] = useState({
     firmware_version: '',
     hardware_platform: 'Teensy 4.1',
@@ -73,8 +73,8 @@ const SystemInfo = () => {
   const getSystemInfo = async () => {
     if (window.electronAPI) {
       try {
-        await window.electronAPI.sendCommand('info');
-        await window.electronAPI.sendCommand('status');
+        await sendCommand('info');
+        await sendCommand('status');
       } catch (error) {
         console.error('Error getting system info:', error);
       }
@@ -84,7 +84,7 @@ const SystemInfo = () => {
   const getSensorStatus = async () => {
     if (window.electronAPI) {
       try {
-        await window.electronAPI.sendCommand('sensor_json');
+        await sendCommand('sensor_json');
       } catch (error) {
         console.error('Error getting sensor status:', error);
       }
@@ -95,7 +95,7 @@ const SystemInfo = () => {
     if (window.electronAPI) {
       setIsScanning(true);
       try {
-        await window.electronAPI.sendCommand('detect_sensors');
+        await sendCommand('detect_sensors');
         // Wait a moment for scan to complete, then get results
         setTimeout(async () => {
           await getSensorStatus();
@@ -111,7 +111,7 @@ const SystemInfo = () => {
   const performI2CScan = async () => {
     if (window.electronAPI) {
       try {
-        await window.electronAPI.sendCommand('i2c_scan');
+        await sendCommand('i2c_scan');
       } catch (error) {
         console.error('Error performing I2C scan:', error);
       }
@@ -121,7 +121,7 @@ const SystemInfo = () => {
   const detectSpecificSensor = async (sensorType) => {
     if (window.electronAPI) {
       try {
-        await window.electronAPI.sendCommand(`detect ${sensorType}`);
+        await sendCommand(`detect ${sensorType}`);
         // Update sensor status after detection
         setTimeout(() => getSensorStatus(), 1000);
       } catch (error) {

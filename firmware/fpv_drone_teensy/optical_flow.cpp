@@ -254,26 +254,34 @@ bool OpticalFlowSensor::read_pmw3901_data() {
 }
 
 bool OpticalFlowSensor::read_paa5100_data() {
-  // Read PAA5100 over I2C (simplified implementation)
   Wire.beginTransmission(0x50);
-  Wire.write(0x02); // Motion register
-  Wire.endTransmission();
-  
-  Wire.requestFrom(0x50, 1);
-  if (Wire.available()) {
-    uint8_t motion = Wire.read();
-    
-    if (motion & 0x80) {
-      // Read X and Y motion data
-      // This is simplified - actual implementation would read multiple registers
-      flow_data.velocity_x = 0.0f; // Placeholder
-      flow_data.velocity_y = 0.0f; // Placeholder
-      flow_data.surface_quality = 100; // Placeholder
-      return true;
-    }
-  }
-  
-  return false;
+  Wire.write(0x02);
+  if (Wire.endTransmission(false) != 0) return false;
+
+  Wire.requestFrom(0x50, 6);
+  if (Wire.available() < 6) return false;
+
+  uint8_t motion   = Wire.read();
+  uint8_t dx_low   = Wire.read();
+  uint8_t dx_high  = Wire.read();
+  uint8_t dy_low   = Wire.read();
+  uint8_t dy_high  = Wire.read();
+  uint8_t squal    = Wire.read();
+
+  if (!(motion & 0x80)) return false;
+
+  int16_t delta_x = (int16_t)((dx_high << 8) | dx_low);
+  int16_t delta_y = (int16_t)((dy_high << 8) | dy_low);
+  flow_data.surface_quality = squal;
+
+  extern SensorData sensor_data;
+  float height = sensor_data.baro.healthy ? max(sensor_data.baro.altitude, 0.1f) : 1.0f;
+  float scale = height * 0.00125f;
+
+  flow_data.velocity_x = delta_x * scale;
+  flow_data.velocity_y = delta_y * scale;
+
+  return (squal > OPTICAL_FLOW_MIN_SURFACE_QUALITY);
 }
 
 bool OpticalFlowSensor::read_adns3080_data() {
