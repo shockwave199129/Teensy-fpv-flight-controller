@@ -3,7 +3,10 @@
 
 #include "config.h"
 
-class DualIMUManager {
+/**
+ * @brief Manages dual IMU sensors, handling initialization, validation,
+ *        cross‑checking, and fail‑over to a single‑IMU mode when necessary.
+ */class DualIMUManager {
 private:
   bool primary_imu_initialized;
   bool secondary_imu_initialized;

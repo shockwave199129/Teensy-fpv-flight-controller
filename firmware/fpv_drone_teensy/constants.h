@@ -1,5 +1,10 @@
 #ifndef CONSTANTS_H
-#define CONSTANTS_H
+#define CONSTANTS_H/*
+ * @brief Global configuration constants for the FPV flight controller.
+ *
+ * These values are compile‑time configurable and cover safety thresholds,
+ * control loop timing, sensor fusion parameters, and hardware limits.
+ */
 
 // =================== SAFETY THRESHOLDS ===================
 
@@ -19,6 +24,7 @@
 #define ARM_THROTTLE_THRESHOLD 1100          // Max throttle for arming
 #define ARM_YAW_THRESHOLD 1700               // Min yaw for arming sequence
 #define DISARM_YAW_THRESHOLD 1300            // Max yaw for disarming sequence
+#define MAX_ARM_TILT_DEG 10.0f               // Max tilt (degrees) allowed for arming
 #define ARM_SEQUENCE_TIME_MS 2000            // Time to hold sticks for arm/disarm
 
 // Sensor health timeouts (configurable)
@@ -26,6 +32,8 @@
 #define GPS_TIMEOUT_MS 5000                  // GPS data timeout
 #define MAG_TIMEOUT_MS 1000                  // Magnetometer timeout
 #define BARO_TIMEOUT_MS 1000                 // Barometer timeout
+// IMU cross‑validation timing (configurable)
+#define IMU_VALIDATION_INTERVAL_MS 100          // Validate IMU health at 10 Hz
 
 // GPS requirements (configurable)
 #define GPS_MIN_SATELLITES 6                 // Minimum satellites for GPS functions
@@ -287,9 +295,12 @@
 #define MAX_THRUST_TO_WEIGHT_RATIO 3.0f      // Maximum thrust-to-weight ratio
 
 // Flying style preferences (user tunable)
-#define FLYING_STYLE_SPORT                   // SPORT, CINEMATIC, RACE, BEGINNER
-#define AGGRESSIVENESS_LEVEL 1.2f            // 0.1-2.0 (conservative to aggressive)
-#define SMOOTHNESS_LEVEL 1.0f                // 0.1-2.0 (twitchy to smooth)
+#define FLYING_STYLE_BEGINNER                // SPORT, CINEMATIC, RACE, BEGINNER
+#define AGGRESSIVENESS_LEVEL 0.6f            // 0.1-2.0 (conservative to aggressive)
+#define SMOOTHNESS_LEVEL 1.5f                // 0.1-2.0 (twitchy to smooth)
+
+// Beginner safety limit: caps maximum throttle as a fraction of full range
+#define BEGINNER_THROTTLE_LIMIT 0.70f        // 70% max throttle for beginner profile
 
 // Environmental settings (location specific)
 #define MAGNETIC_DECLINATION_DEGREES 0.0f    // Local magnetic declination

@@ -63,8 +63,28 @@ void init(EscProtocol proto, const uint8_t* motorPins, uint8_t motorCount) {
   currentProto = proto;
   motorCnt = motorCount;
   for(uint8_t i=0;i<motorCnt;i++){pins[i]=motorPins[i];}
-  // Configure FlexPWM submodules – minimal config (details omitted for brevity)
-  // TODO: set clock, prescaler, MOD value according to bitTimeNS(proto)
+  // Configure FlexPWM3 submodule 0 for DShot waveform generation
+  // IMXRT1062 FlexPWM3 runs from 150MHz IPG clock
+  uint16_t bit_time_ns = bitTimeNS(proto);
+  uint16_t prescaler_val = 0; // divide-by-1
+  if (bit_time_ns > 4000) prescaler_val = 1; // divide-by-2 for DShot150
+  uint16_t clk_per_ns = (prescaler_val == 0) ? 150 : 75; // ticks per 1000ns
+  uint16_t mod_val = (uint16_t)((uint32_t)bit_time_ns * clk_per_ns / 1000);
+
+  // Enable FlexPWM3 clock gate (CCM_CCGR4 bit 16-17)
+  CCM_CCGR4 |= CCM_CCGR4_PWM3(CCM_CCGR_ON);
+
+  // Configure submodule 0
+  FLEXPWM3_SM0CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_PRSC(prescaler_val);
+  FLEXPWM3_SM0INIT = 0;
+  FLEXPWM3_SM0VAL1 = mod_val;
+  FLEXPWM3_SM0VAL0 = 0;
+  FLEXPWM3_SM0VAL2 = 0;
+  FLEXPWM3_SM0VAL3 = mod_val / 2; // default 50% duty
+  FLEXPWM3_OUTEN |= FLEXPWM_OUTEN_PWMA_EN(0x01); // enable PWM_A output on SM0
+
+  // Start counter
+  FLEXPWM3_MCTRL |= FLEXPWM_MCTRL_RUN(0x01);
 
   // Configure DMA channel to write waveform per frame – here we only set up shell.
   dmaTx.disable();

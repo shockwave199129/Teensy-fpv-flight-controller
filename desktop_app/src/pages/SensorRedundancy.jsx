@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const SensorRedundancy = () => {
-  const [isConnected, setIsConnected] = useState(false);
+const SensorRedundancy = ({ sendCommand, connected }) => {
   const [redundancyData, setRedundancyData] = useState({
     capability: 'FLIGHT_FULL_CAPABILITY',
     sensorStatus: {
@@ -31,11 +30,6 @@ const SensorRedundancy = () => {
   const [lastUpdate, setLastUpdate] = useState(Date.now());
 
   useEffect(() => {
-    // Listen for connection status
-    const handleConnectionChange = (event, connected) => {
-      setIsConnected(connected);
-    };
-
     // Listen for sensor redundancy data
     const handleSerialData = (event, data) => {
       try {
@@ -49,21 +43,19 @@ const SensorRedundancy = () => {
       }
     };
 
-    window.electronAPI.onConnectionChange(handleConnectionChange);
     window.electronAPI.onSerialData(handleSerialData);
 
     return () => {
-      window.electronAPI.removeAllListeners('connection-change');
       window.electronAPI.removeAllListeners('serial-data');
     };
   }, []);
 
   // Auto-refresh redundancy status every 2 seconds
   useEffect(() => {
-    if (!isConnected) return;
+    if (!connected) return;
 
     const requestRedundancyStatus = () => {
-      window.electronAPI.sendCommand('redundancy status json');
+      sendCommand('redundancy status json');
     };
 
     // Initial request
@@ -73,17 +65,7 @@ const SensorRedundancy = () => {
     const interval = setInterval(requestRedundancyStatus, 2000);
 
     return () => clearInterval(interval);
-  }, [isConnected]);
-
-  const sendCommand = async (command) => {
-    if (isConnected) {
-      try {
-        await window.electronAPI.sendCommand(command);
-      } catch (error) {
-        console.error('Error sending command:', error);
-      }
-    }
-  };
+  }, [connected]);
 
   const getCapabilityColor = (capability) => {
     switch (capability) {
@@ -201,7 +183,7 @@ const SensorRedundancy = () => {
     }
   };
 
-  if (!isConnected) {
+  if (!connected) {
     return (
       <div className="p-6">
         <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">

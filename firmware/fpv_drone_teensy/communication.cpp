@@ -149,7 +149,7 @@ void Communication::process_command(String command) {
   }
   else if (command == "REBOOT") {
     Serial.println("Rebooting...");
-    delay(1000);
+    // delay(1000); // removed for non‑blocking
     // Software reset for Teensy
     SCB_AIRCR = 0x05FA0004;
   }

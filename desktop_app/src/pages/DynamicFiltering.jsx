@@ -21,7 +21,7 @@ ChartJS.register(
   Legend
 );
 
-const DynamicFiltering = () => {
+const DynamicFiltering = ({ sendCommand, connected }) => {
   const [spectralData, setSpectralData] = useState({
     numPeaks: 0,
     peakFrequencies: [],
@@ -92,8 +92,8 @@ const DynamicFiltering = () => {
   useEffect(() => {
     // Request filtering status every second
     const interval = setInterval(() => {
-      window.electronAPI.sendSerial('filtering status');
-      window.electronAPI.sendSerial('filtering analysis');
+      sendCommand('filtering status');
+      sendCommand('filtering analysis');
     }, 1000);
 
     // Listen for filtering data updates
@@ -335,7 +335,7 @@ const DynamicFiltering = () => {
               onChange={(e) => {
                 const value = e.target.value;
                 setFilterStatus(prev => ({ ...prev, gyroLpfCutoff: parseInt(value) }));
-                window.electronAPI.sendSerial(`set gyro_lpf ${value}`);
+                sendCommand(`set gyro_lpf ${value}`);
               }}
               className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
             />
@@ -352,7 +352,7 @@ const DynamicFiltering = () => {
               onChange={(e) => {
                 const value = e.target.value;
                 setFilterStatus(prev => ({ ...prev, accelLpfCutoff: parseInt(value) }));
-                window.electronAPI.sendSerial(`set accel_lpf ${value}`);
+                sendCommand(`set accel_lpf ${value}`);
               }}
               className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
             />
@@ -364,7 +364,7 @@ const DynamicFiltering = () => {
                 checked={filterStatus.autoTuneEnabled}
                 onChange={(e) => {
                   setFilterStatus(prev => ({ ...prev, autoTuneEnabled: e.target.checked }));
-                  window.electronAPI.sendSerial(`filtering auto ${e.target.checked ? 'on' : 'off'}`);
+                  sendCommand(`filtering auto ${e.target.checked ? 'on' : 'off'}`);
                 }}
                 className="mr-2"
               />
@@ -376,7 +376,7 @@ const DynamicFiltering = () => {
                 checked={filterStatus.notchFiltersEnabled}
                 onChange={(e) => {
                   setFilterStatus(prev => ({ ...prev, notchFiltersEnabled: e.target.checked }));
-                  window.electronAPI.sendSerial(`set notch_filters ${e.target.checked ? 'on' : 'off'}`);
+                  sendCommand(`set notch_filters ${e.target.checked ? 'on' : 'off'}`);
                 }}
                 className="mr-2"
               />

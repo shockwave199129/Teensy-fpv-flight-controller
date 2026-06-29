@@ -5,11 +5,13 @@
 #include "sensor_redundancy.h"
 #include "communication.h"
 #include "calibration_storage.h"
+#include "beep_pattern.h"
+#include "log.h"
 
 // Pin definitions for beeper
 #define BEEPER_PIN 8
 
-// Missing function implementations
+// All required functions are now implemented
 BatteryStatus get_enhanced_battery_status() {
   BatteryStatus status;
   status.connected = true;
@@ -22,14 +24,13 @@ BatteryStatus get_enhanced_battery_status() {
   int raw_current = analogRead(CURRENT_SENSOR_PIN);
   status.current = raw_current * CURRENT_SCALE;
   
-  // Calculate percentage (simplified for 3S LiPo)
-  float min_voltage = 9.9f; // 3.3V per cell * 3 cells
-  float max_voltage = 12.6f; // 4.2V per cell * 3 cells
+  float min_voltage = BATTERY_VOLTAGE_PER_CELL_CRITICAL * BATTERY_CELL_COUNT;
+  float max_voltage = 4.2f * BATTERY_CELL_COUNT;
   status.percentage = constrain((status.voltage - min_voltage) / (max_voltage - min_voltage) * 100.0f, 0.0f, 100.0f);
   
-  // Set warning flags
-  status.low_voltage_warning = (status.voltage < 11.1f); // 3.7V per cell
-  status.critical_voltage = (status.voltage < 10.5f); // 3.5V per cell
+  // Use unified thresholds from constants.h
+  status.low_voltage_warning = (status.voltage < LOW_VOLTAGE_THRESHOLD);
+  status.critical_voltage = (status.voltage < CRITICAL_VOLTAGE_THRESHOLD);
   
   status.remaining_capacity_mah = status.percentage * 2200.0f / 100.0f; // Assume 2200mAh battery
   status.last_update = millis();
@@ -41,7 +42,8 @@ bool is_system_calibrated() {
   extern CalibrationData calibration_data;
   return calibration_data.system_calibrated && 
          calibration_data.gyro_calibrated && 
-         calibration_data.accel_calibrated;
+         calibration_data.accel_calibrated &&
+         calibration_data.mag_calibrated;
 }
 
 bool check_gps_functions_configured() {
@@ -82,13 +84,12 @@ bool critical_sensor_check_with_feedback() {
     led_control.set_status(LED_ERROR);
     led_control.show_custom_pattern(CRGB::Red, 3); // Fast flashing red
     
-    // Audio feedback - Rapid beeping pattern
-    for (int i = 0; i < 5; i++) {
-      tone(BEEPER_PIN, 2000, 100); // 2kHz beep for 100ms
-      delay(100);
-      noTone(BEEPER_PIN);
-      delay(50);
-    }
+    // Audio feedback - Rapid beeping pattern (non‑blocking)
+    const uint16_t freqs1[] = {2000, 0, 2000, 0, 2000, 0, 2000, 0, 2000, 0};
+    const uint16_t durations1[] = {100, 0, 100, 0, 100, 0, 100, 0, 100, 0};
+    const uint16_t gaps1[] = {100, 50, 100, 50, 100, 50, 100, 50, 100, 0};
+    BeepPattern::playPattern(freqs1, durations1, gaps1, 5);
+
   }
   
   // Check battery connection and voltage
@@ -101,13 +102,11 @@ bool critical_sensor_check_with_feedback() {
     // Visual feedback - Orange flashing LED
     led_control.show_custom_pattern(CRGB::Orange, 2); // Medium flashing orange
     
-    // Audio feedback - Different beep pattern
-    for (int i = 0; i < 3; i++) {
-      tone(BEEPER_PIN, 1500, 200); // Lower frequency, longer beeps
-      delay(200);
-      noTone(BEEPER_PIN);
-      delay(100);
-    }
+    // Audio feedback - Different beep pattern (non‑blocking)
+    const uint16_t freqs2[] = {1500, 0, 1500, 0, 1500, 0};
+    const uint16_t durations2[] = {200, 0, 200, 0, 200, 0};
+    const uint16_t gaps2[] = {200, 100, 200, 100, 200, 0};
+    BeepPattern::playPattern(freqs2, durations2, gaps2, 3);
   } else if (battery.critical_voltage) {
     Serial.println("CRITICAL: Battery voltage critically low - Emergency landing required!");
     
@@ -132,12 +131,11 @@ bool enhanced_safety_check_for_arming_with_feedback() {
     safety_issues += "- Sensors not calibrated\n";
     led_control.show_custom_pattern(CRGB::Yellow, 2); // Yellow flashing
     
-    // Calibration reminder beeps
-    tone(BEEPER_PIN, 800, 300);
-    delay(400);
-    tone(BEEPER_PIN, 1200, 300);
-    delay(400);
-    noTone(BEEPER_PIN);
+    // Calibration reminder beeps (non‑blocking)
+    const uint16_t freqs3[] = {800, 0, 1200, 0};
+    const uint16_t durations3[] = {300, 0, 300, 0};
+    const uint16_t gaps3[] = {400, 400, 0, 0};
+    BeepPattern::playPattern(freqs3, durations3, gaps3, 2);
   }
   
   // 2. Check critical sensors with feedback
@@ -146,24 +144,68 @@ bool enhanced_safety_check_for_arming_with_feedback() {
     safety_issues += "- Critical sensor failure\n";
   }
   
+  // 2b. RC signal must be valid (including timeout)
+  extern RcData rc_data;
+  // If no update within timeout, mark as invalid
+  if (millis() - rc_data.last_update > RC_TIMEOUT_MS) {
+    rc_data.signal_valid = false;
+  }
+  if (!rc_data.signal_valid) {
+    safe_to_arm = false;
+    safety_issues += "- RC signal not valid\n";
+  }
+  
+  // 2c. Throttle must be at minimum
+  if (rc_data.throttle > ARM_THROTTLE_THRESHOLD) {
+    safe_to_arm = false;
+    safety_issues += "- Throttle not at minimum\n";
+  }
+  
+  // 2d. Aircraft must be approximately level (< 10 degrees tilt)
+  extern SensorData sensor_data;
+  if (fabsf(sensor_data.roll) > MAX_ARM_TILT_DEG || fabsf(sensor_data.pitch) > MAX_ARM_TILT_DEG) {
+    safe_to_arm = false;
+    safety_issues += "- Aircraft not level (tilt > 10 deg)\n";
+  }
+  
+  // 2e. Barometer health check
+  static unsigned long last_baro_warn = 0;
+  if (sensor_data.baro.healthy && (millis() - sensor_data.baro.last_update > BARO_TIMEOUT_MS)) {
+    safe_to_arm = false;
+    safety_issues += "- Barometer data stale\n";
+    if (millis() - last_baro_warn > 5000) {
+      Serial.println("Warning: Barometer data stale");
+      last_baro_warn = millis();
+    }
+  }
+  
+  // 2f. Magnetometer health check (if present)
+  static unsigned long last_mag_warn = 0;
+  if (sensor_data.mag.healthy && (millis() - sensor_data.mag.last_update > MAG_TIMEOUT_MS)) {
+    safe_to_arm = false;
+    safety_issues += "- Magnetometer data stale\n";
+    if (millis() - last_mag_warn > 5000) {
+      Serial.println("Warning: Magnetometer data stale");
+      last_mag_warn = millis();
+    }
+  }
+  
   // 3. Check GPS requirements if GPS functions are configured
   if (check_gps_functions_configured()) {
     if (!is_gps_functionality_available()) {
       safe_to_arm = false;
       safety_issues += "- GPS functionality required but not available\n";
       
-      Serial.println("GPS functions are configured but GPS functionality not available:");
-      Serial.println("GPS functionality requires either:");
-      Serial.println("  - Dedicated GPS with 6+ satellites, OR");
-      Serial.println("  - Synthetic GPS with >30% confidence");
+      LOG_DEBUG("GPS functions are configured but GPS functionality not available:");
+      LOG_DEBUG("GPS functionality requires either:");
+      LOG_DEBUG("  - Dedicated GPS with 6+ satellites, OR");
+      LOG_DEBUG("  - Synthetic GPS with >30% confidence");
       
-      // GPS warning beeps
-      for (int i = 0; i < 4; i++) {
-        tone(BEEPER_PIN, 1800, 100);
-        delay(150);
-        noTone(BEEPER_PIN);
-        delay(50);
-      }
+      // GPS warning beeps (non‑blocking)
+      const uint16_t freqs_gps[] = {1800, 0, 1800, 0, 1800, 0, 1800, 0};
+      const uint16_t durations_gps[] = {100, 0, 100, 0, 100, 0, 100, 0};
+      const uint16_t gaps_gps[] = {150, 50, 150, 50, 150, 50, 150, 0};
+      BeepPattern::playPattern(freqs_gps, durations_gps, gaps_gps, 4);
       
       // Check what GPS sources are available
       extern SensorData sensor_data;
@@ -223,13 +265,11 @@ bool enhanced_safety_check_for_arming_with_feedback() {
     led_control.show_custom_pattern(CRGB::Green, 0); // Solid green
     
     // Success beep sequence
-    tone(BEEPER_PIN, 1000, 100);
-    delay(150);
-    tone(BEEPER_PIN, 1500, 100);
-    delay(150);
-    tone(BEEPER_PIN, 2000, 200);
-    delay(300);
-    noTone(BEEPER_PIN);
+    // Success beep sequence (non‑blocking)
+    const uint16_t freqs_success[] = {1000, 0, 1500, 0, 2000, 0};
+    const uint16_t durations_success[] = {100, 0, 100, 0, 200, 0};
+    const uint16_t gaps_success[] = {150, 150, 300, 0};
+    BeepPattern::playPattern(freqs_success, durations_success, gaps_success, 3);
     
     return true;
   } else {
@@ -242,12 +282,11 @@ bool enhanced_safety_check_for_arming_with_feedback() {
     led_control.set_status(LED_ERROR);
     
     // Failure beep sequence
-    for (int i = 0; i < 6; i++) {
-      tone(BEEPER_PIN, 500, 80);
-      delay(120);
-      noTone(BEEPER_PIN);
-      delay(40);
-    }
+    // Failure beep sequence (non‑blocking, 6 short tones)
+    const uint16_t freqs_fail[] = {500, 0, 500, 0, 500, 0, 500, 0, 500, 0, 500, 0};
+    const uint16_t durations_fail[] = {80, 0, 80, 0, 80, 0, 80, 0, 80, 0, 80, 0};
+    const uint16_t gaps_fail[] = {120, 40, 120, 40, 120, 40, 120, 40, 120, 40, 120, 0};
+    BeepPattern::playPattern(freqs_fail, durations_fail, gaps_fail, 6);
     
     return false;
   }
@@ -285,22 +324,21 @@ void check_automatic_battery_failsafe() {
         // RTH activation beeps
         noTone(BEEPER_PIN);
         for (int i = 0; i < 3; i++) {
-          tone(BEEPER_PIN, 1800, 500);
-          delay(600);
-          noTone(BEEPER_PIN);
-          delay(200);
+          // Critical battery RTH alarm (non‑blocking, 3 beeps)
+          const uint16_t freqs_rth[] = {1800, 0, 1800, 0, 1800, 0};
+          const uint16_t durations_rth[] = {500, 0, 500, 0, 500, 0};
+          const uint16_t gaps_rth[] = {600, 200, 600, 200, 600, 0};
+          BeepPattern::playPattern(freqs_rth, durations_rth, gaps_rth, 3);
         }
       } else {
         Serial.println("No GPS available - pilot must land immediately!");
         
         // Different alarm pattern for manual landing required
-        noTone(BEEPER_PIN);
-        for (int i = 0; i < 10; i++) {
-          tone(BEEPER_PIN, 800, 100);
-          delay(150);
-          noTone(BEEPER_PIN);
-          delay(50);
-        }
+        // Manual landing alarm (non‑blocking, 10 beeps)
+        const uint16_t freqs_manual[] = {800, 0, 800, 0, 800, 0, 800, 0, 800, 0, 800, 0, 800, 0, 800, 0, 800, 0, 800, 0};
+        const uint16_t durations_manual[] = {100, 0, 100, 0, 100, 0, 100, 0, 100, 0, 100, 0, 100, 0, 100, 0, 100, 0, 100, 0};
+        const uint16_t gaps_manual[] = {150, 50, 150, 50, 150, 50, 150, 50, 150, 50, 150, 50, 150, 50, 150, 50, 150, 50, 150, 0};
+        BeepPattern::playPattern(freqs_manual, durations_manual, gaps_manual, 10);
       }
       
       critical_battery_warned = true;
@@ -313,12 +351,11 @@ void check_automatic_battery_failsafe() {
       led_control.set_status(LED_LOW_BATTERY);
       
       // Low battery warning beeps
-      for (int i = 0; i < 3; i++) {
-        tone(BEEPER_PIN, 1200, 200);
-        delay(300);
-        noTone(BEEPER_PIN);
-        delay(200);
-      }
+      // Low battery warning beeps (non‑blocking, 3 tones)
+      const uint16_t freqs_lowbatt[] = {1200, 0, 1200, 0, 1200, 0};
+      const uint16_t durations_lowbatt[] = {200, 0, 200, 0, 200, 0};
+      const uint16_t gaps_lowbatt[] = {300, 200, 300, 200, 300, 0};
+      BeepPattern::playPattern(freqs_lowbatt, durations_lowbatt, gaps_lowbatt, 3);
       
       low_battery_warned = true;
     }
@@ -347,50 +384,158 @@ void handle_rc_signal_loss() {
     led_control.set_status(LED_ERROR);
     
     // RC loss alarm
-    for (int i = 0; i < 5; i++) {
-      tone(BEEPER_PIN, 2500, 100);
-      delay(150);
-      noTone(BEEPER_PIN);
-      delay(50);
-    }
+    // RC loss alarm (non‑blocking, 5 beeps)
+    const uint16_t freqs_rc_loss[] = {2500, 0, 2500, 0, 2500, 0, 2500, 0, 2500, 0};
+    const uint16_t durations_rc_loss[] = {100, 0, 100, 0, 100, 0, 100, 0, 100, 0};
+    const uint16_t gaps_rc_loss[] = {150, 50, 150, 50, 150, 50, 150, 50, 150, 0};
+    BeepPattern::playPattern(freqs_rc_loss, durations_rc_loss, gaps_rc_loss, 5);
     
     // Check if GPS RTH is possible
     if (is_gps_functionality_available()) {
-      Serial.println("Activating GPS Return to Home");
-      // Would activate RTH mode
+      extern FlightModes flight_modes;
+      extern SensorData sensor_data_global;
+      extern RcData rc_data_global;
+      flight_modes.return_to_home(sensor_data_global, rc_data_global);
     } else {
-      Serial.println("No GPS - Activating altitude hold and slow descent");
-      // Would activate safe descent mode
+      Serial.println("No GPS - Activating emergency altitude descent");
+      emergency_altitude_descent();
     }
   } else {
     // Not armed - just alert user
     Serial.println("RC signal lost while disarmed - Safe");
     
     // Gentler alert for disarmed state
-    tone(BEEPER_PIN, 1500, 1000);
-    delay(1100);
-    noTone(BEEPER_PIN);
+    // Disarmed alert tone (non‑blocking)
+    const uint16_t freqs_disarmed[] = {1500, 0};
+    const uint16_t durations_disarmed[] = {1000, 0};
+    const uint16_t gaps_disarmed[] = {1100, 0};
+    BeepPattern::playPattern(freqs_disarmed, durations_disarmed, gaps_disarmed, 1);
   }
 }
 
 void emergency_altitude_descent() {
-  Serial.println("Emergency altitude descent initiated");
-  // Implementation for emergency descent
+  extern MotorControl motor_control;
+  extern LEDControl led_control;
+
+  static uint16_t descent_throttle = 1400;
+  static bool descent_active = false;
+
+  if (!descent_active) {
+    Serial.println("Emergency altitude descent initiated");
+    descent_throttle = 1400;
+    descent_active = true;
+  }
+
+  led_control.set_status(LED_ERROR);
+  tone(BEEPER_PIN, 2000, 50);
+
+  if (descent_throttle > 1050) {
+    descent_throttle -= 2;
+    PIDOutput descent_pid = {0.0f, 0.0f, 0.0f, (float)descent_throttle};
+    motor_control.update(descent_pid, true);
+  } else {
+    Serial.println("Emergency descent complete - disarming");
+    motor_control.disarm();
+    descent_active = false;
+    descent_throttle = 1400;
+    noTone(BEEPER_PIN);
+  }
 }
 
 // Additional missing functions for communication.cpp
 bool perform_gyro_calibration() {
-  Serial.println("Starting gyro calibration...");
-  // Simplified gyro calibration
-  delay(3000); // Simulate calibration time
+  extern CalibrationData calibration_data;
+  Serial.println("Starting gyro calibration - keep vehicle still...");
+
+  float sum[3] = {0.0f, 0.0f, 0.0f};
+  const int NUM_SAMPLES = 500;
+  int valid_samples = 0;
+
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    IMUData imu_sample;
+    if (read_imu_data(&imu_sample)) {
+      sum[0] += imu_sample.gyro_x;
+      sum[1] += imu_sample.gyro_y;
+      sum[2] += imu_sample.gyro_z;
+      valid_samples++;
+    }
+    // delay(2); // removed for non‑blocking
+  }
+
+  if (valid_samples < NUM_SAMPLES / 2) {
+    Serial.println("Gyro calibration FAILED - insufficient valid samples");
+    return false;
+  }
+
+  calibration_data.gyro_offsets[0] = sum[0] / valid_samples;
+  calibration_data.gyro_offsets[1] = sum[1] / valid_samples;
+  calibration_data.gyro_offsets[2] = sum[2] / valid_samples;
+  calibration_data.gyro_calibrated = true;
+  calibration_data.calibration_timestamp = millis();
+
+  if (!CalibrationStorage::save(calibration_data)) {
+    Serial.println("Gyro calibration save FAILED");
+    return false;
+  }
+
+  Serial.print("Gyro offsets: ");
+  Serial.print(calibration_data.gyro_offsets[0], 4);
+  Serial.print(", ");
+  Serial.print(calibration_data.gyro_offsets[1], 4);
+  Serial.print(", ");
+  Serial.println(calibration_data.gyro_offsets[2], 4);
   Serial.println("Gyro calibration completed");
   return true;
 }
 
 bool perform_accelerometer_calibration() {
-  Serial.println("Starting accelerometer calibration...");
-  // Simplified accelerometer calibration
-  delay(5000); // Simulate calibration time
+  extern CalibrationData calibration_data;
+  Serial.println("Starting accelerometer calibration - keep vehicle level and still...");
+
+  float sum[3] = {0.0f, 0.0f, 0.0f};
+  const int NUM_SAMPLES = 500;
+  int valid_samples = 0;
+
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    IMUData imu_sample;
+    if (read_imu_data(&imu_sample)) {
+      sum[0] += imu_sample.accel_x;
+      sum[1] += imu_sample.accel_y;
+      sum[2] += imu_sample.accel_z;
+      valid_samples++;
+    }
+    // delay(2); // removed for non‑blocking
+  }
+
+  if (valid_samples < NUM_SAMPLES / 2) {
+    Serial.println("Accelerometer calibration FAILED - insufficient valid samples");
+    return false;
+  }
+
+  calibration_data.accel_offsets[0] = sum[0] / valid_samples;
+  calibration_data.accel_offsets[1] = sum[1] / valid_samples;
+  calibration_data.accel_offsets[2] = (sum[2] / valid_samples) - 9.81f;
+
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      calibration_data.accel_scale_matrix[i][j] = (i == j) ? 1.0f : 0.0f;
+    }
+  }
+
+  calibration_data.accel_calibrated = true;
+  calibration_data.calibration_timestamp = millis();
+
+  if (!CalibrationStorage::save(calibration_data)) {
+    Serial.println("Accelerometer calibration save FAILED");
+    return false;
+  }
+
+  Serial.print("Accel offsets: ");
+  Serial.print(calibration_data.accel_offsets[0], 4);
+  Serial.print(", ");
+  Serial.print(calibration_data.accel_offsets[1], 4);
+  Serial.print(", ");
+  Serial.println(calibration_data.accel_offsets[2], 4);
   Serial.println("Accelerometer calibration completed");
   return true;
 }

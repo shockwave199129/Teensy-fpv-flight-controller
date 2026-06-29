@@ -77,7 +77,12 @@ void SensorRedundancySystem::update(SensorData& sensors) {
   adjust_flight_characteristics();
 
   // EKF predict step using accelerometer (convert body to NED simplistically)
-  EKF::predict(sensors.imu.accel_x, sensors.imu.accel_y, 0.0005f); // dt placeholder
+  static unsigned long last_predict_us = 0;
+  unsigned long now_us = micros();
+  float dt = (last_predict_us == 0) ? 0.0005f : (now_us - last_predict_us) / 1000000.0f;
+  if (dt > 0.01f) dt = 0.01f;
+  last_predict_us = now_us;
+  EKF::predict(sensors.imu.accel_x, sensors.imu.accel_y, dt);
 
   // GPS update
   if (sensors.gps.healthy && sensors.gps.fix) {
@@ -95,31 +100,22 @@ void SensorRedundancySystem::update(SensorData& sensors) {
 }
 
 void SensorRedundancySystem::calculate_sensor_health() {
-  // Simplified health calculation
-  float health_score = 0.0f;
-  int sensor_count = 0;
-  
-  if (status.imu_health == SENSOR_HEALTHY) {
-    health_score += 1.0f;
-  }
-  sensor_count++;
-  
-  if (status.gps_health == SENSOR_HEALTHY) {
-    health_score += 1.0f;
-  }
-  sensor_count++;
-  
-  if (status.mag_health == SENSOR_HEALTHY) {
-    health_score += 1.0f;
-  }
-  sensor_count++;
-  
-  if (status.baro_health == SENSOR_HEALTHY) {
-    health_score += 1.0f;
-  }
-  sensor_count++;
-  
-  status.quality_score = health_score / sensor_count;
+  const float IMU_WEIGHT  = 0.4f;
+  const float GPS_WEIGHT  = 0.25f;
+  const float MAG_WEIGHT  = 0.15f;
+  const float BARO_WEIGHT = 0.2f;
+
+  float score = 0.0f;
+  score += (status.imu_health  == SENSOR_HEALTHY ? 1.0f : (status.imu_health  == SENSOR_DEGRADED ? 0.5f : 0.0f)) * IMU_WEIGHT;
+  score += (status.gps_health  == SENSOR_HEALTHY ? 1.0f : (status.gps_health  == SENSOR_DEGRADED ? 0.5f : 0.0f)) * GPS_WEIGHT;
+  score += (status.mag_health  == SENSOR_HEALTHY ? 1.0f : (status.mag_health  == SENSOR_DEGRADED ? 0.5f : 0.0f)) * MAG_WEIGHT;
+  score += (status.baro_health == SENSOR_HEALTHY ? 1.0f : (status.baro_health == SENSOR_DEGRADED ? 0.5f : 0.0f)) * BARO_WEIGHT;
+
+  if (status.synthetic_gps_available)  score += GPS_WEIGHT * 0.3f;
+  if (status.synthetic_mag_available)  score += MAG_WEIGHT * 0.3f;
+  if (status.synthetic_baro_available) score += BARO_WEIGHT * 0.3f;
+
+  status.quality_score = constrain(score, 0.0f, 1.0f);
 }
 
 void SensorRedundancySystem::update_synthetic_gps(const SensorData &sensors) {
@@ -188,15 +184,23 @@ void SensorRedundancySystem::update_synthetic_barometer(const SensorData &sensor
 }
 
 void SensorRedundancySystem::determine_flight_capability() {
-  // Simplified capability determination
-  if (status.imu_health != SENSOR_HEALTHY) {
+  if (status.imu_health == SENSOR_FAILED) {
     current_capability = FLIGHT_CAPABILITY_NONE;
-  } else if (status.gps_health == SENSOR_HEALTHY) {
+    return;
+  }
+
+  bool has_gps  = (status.gps_health  == SENSOR_HEALTHY) || status.synthetic_gps_available;
+  bool has_mag  = (status.mag_health  == SENSOR_HEALTHY) || status.synthetic_mag_available;
+  bool has_baro = (status.baro_health == SENSOR_HEALTHY) || status.synthetic_baro_available;
+
+  if (has_gps && has_mag && has_baro) {
     current_capability = FLIGHT_CAPABILITY_FULL_GPS;
-  } else if (status.mag_health == SENSOR_HEALTHY || status.baro_health == SENSOR_HEALTHY) {
+  } else if (has_gps || (has_mag && has_baro)) {
     current_capability = FLIGHT_CAPABILITY_ENHANCED;
-  } else {
+  } else if (status.imu_health == SENSOR_HEALTHY) {
     current_capability = FLIGHT_CAPABILITY_BASIC;
+  } else {
+    current_capability = FLIGHT_CAPABILITY_NONE;
   }
 }
 
@@ -223,9 +227,25 @@ void SensorRedundancySystem::adjust_flight_characteristics() {
 }
 
 void SensorRedundancySystem::handle_sensor_failures() {
-  // Simplified failure handling
-  if (status.imu_health != SENSOR_HEALTHY) {
-    Serial.println("WARNING: IMU sensor failure detected");
+  if (status.imu_health == SENSOR_FAILED) {
+    Serial.println("CRITICAL: IMU sensor failure - flight unsafe");
+    current_capability = FLIGHT_CAPABILITY_NONE;
+  }
+
+  if (status.gps_health == SENSOR_FAILED && config.synthetic_sensors_enabled) {
+    enable_fallback("gps", true);
+  }
+  if (status.mag_health == SENSOR_FAILED && config.synthetic_sensors_enabled) {
+    enable_fallback("mag", true);
+  }
+  if (status.baro_health == SENSOR_FAILED && config.synthetic_sensors_enabled) {
+    enable_fallback("baro", true);
+  }
+
+  if (status.quality_score < config.failover_threshold) {
+    Serial.println("WARNING: Overall sensor quality below threshold");
+    tuning.stability_gain_multiplier = 2.0f;
+    tuning.aggressiveness_factor = 0.3f;
   }
 }
 
@@ -273,18 +293,34 @@ SensorStatus SensorRedundancySystem::get_sensor_status() {
 }
 
 void SensorRedundancySystem::enable_fallback(String sensor_type, bool enable) {
-  // Simplified fallback configuration
   Serial.println("Fallback " + sensor_type + ": " + (enable ? "enabled" : "disabled"));
+  if (sensor_type == "gps") {
+    config.synthetic_sensors_enabled = enable;
+    status.synthetic_gps_available = enable;
+  } else if (sensor_type == "mag") {
+    status.synthetic_mag_available = enable;
+  } else if (sensor_type == "baro") {
+    status.synthetic_baro_available = enable;
+  }
 }
 
 void SensorRedundancySystem::set_quality_threshold(String sensor_type, float threshold) {
-  // Simplified threshold setting
   Serial.println("Quality threshold for " + sensor_type + " set to " + String(threshold));
+  config.failover_threshold = constrain(threshold, 0.0f, 1.0f);
 }
 
 void SensorRedundancySystem::force_synthetic_mode(String sensor_type, bool enable) {
-  // Simplified synthetic mode forcing
   Serial.println("Synthetic " + sensor_type + ": " + (enable ? "forced on" : "auto"));
+  if (sensor_type == "gps") {
+    synthetic_data.synthetic_gps_valid = enable;
+    status.synthetic_gps_available = enable;
+  } else if (sensor_type == "mag") {
+    synthetic_data.synthetic_mag_valid = enable;
+    status.synthetic_mag_available = enable;
+  } else if (sensor_type == "baro") {
+    synthetic_data.synthetic_baro_valid = enable;
+    status.synthetic_baro_available = enable;
+  }
 }
 
 FlightCapability SensorRedundancySystem::get_flight_capability() {
@@ -297,4 +333,8 @@ FlightTuning SensorRedundancySystem::get_adaptive_tuning() {
 
 SyntheticSensorData SensorRedundancySystem::get_synthetic_data() {
   return synthetic_data;
+}
+
+SensorRedundancyConfig SensorRedundancySystem::get_config() {
+  return config;
 } 

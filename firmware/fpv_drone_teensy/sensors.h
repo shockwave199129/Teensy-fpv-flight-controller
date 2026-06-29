@@ -277,27 +277,97 @@ inline void apply_adaptive_fusion_weights() {
 }
 
 inline void detect_sensor_outliers() {
-  // Placeholder simplistic outlier detection: not enough data for true stats.
-  // For now it just sets a flag if any sensor marked unhealthy.
   extern SensorData sensor_data;
   extern EnhancedSensorFusion enhanced_fusion;
 
-  enhanced_fusion.sensor_outlier_detection =
-      !(sensor_data.imu.healthy && sensor_data.mag.healthy &&
-        sensor_data.baro.healthy && sensor_data.gps.healthy);
+  static float accel_window[20];
+  static int window_idx = 0;
+  static int window_count = 0;
+
+  float accel_mag = sqrtf(sensor_data.imu.accel_x * sensor_data.imu.accel_x +
+                          sensor_data.imu.accel_y * sensor_data.imu.accel_y +
+                          sensor_data.imu.accel_z * sensor_data.imu.accel_z);
+
+  accel_window[window_idx] = accel_mag;
+  window_idx = (window_idx + 1) % 20;
+  if (window_count < 20) window_count++;
+
+  bool statistical_outlier = false;
+  if (window_count >= 5) {
+    float sum = 0.0f;
+    for (int i = 0; i < window_count; i++) sum += accel_window[i];
+    float mean = sum / window_count;
+
+    float var_sum = 0.0f;
+    for (int i = 0; i < window_count; i++) {
+      float diff = accel_window[i] - mean;
+      var_sum += diff * diff;
+    }
+    float stddev = sqrtf(var_sum / window_count);
+
+    if (stddev > 0.001f) {
+      float z_score = fabsf(accel_mag - mean) / stddev;
+      statistical_outlier = (z_score > 3.0f);
+    }
+  }
+
+  bool health_fault = !(sensor_data.imu.healthy && sensor_data.mag.healthy &&
+                        sensor_data.baro.healthy && sensor_data.gps.healthy);
+
+  enhanced_fusion.sensor_outlier_detection = statistical_outlier || health_fault;
 }
 
 inline void compensate_environmental_factors() {
+  extern SensorData sensor_data;
   extern EnhancedSensorFusion enhanced_fusion;
-  // Basic placeholder: temperature compensation could be added here.
-  enhanced_fusion.temperature_compensation_factor = 1.0f; // no-op
+
+  const float REFERENCE_TEMP = 25.0f;
+  const float DRIFT_PER_DEGREE = 0.0001f;
+
+  float temp_deviation = sensor_data.imu.temp - REFERENCE_TEMP;
+  enhanced_fusion.temperature_compensation_factor =
+      1.0f - (temp_deviation * DRIFT_PER_DEGREE);
 }
 
 inline void update_extended_kalman_filter() {
   extern EnhancedSensorFusion enhanced_fusion;
+  extern SensorData sensor_data;
   if (!enhanced_fusion.extended_kalman_filter_enabled) return;
-  // Very simplified EKF one-step predict/update placeholder
-  // In production, call into full EKF library here
+
+  static unsigned long last_ekf_us = 0;
+  unsigned long now_us = micros();
+  if (last_ekf_us == 0) { last_ekf_us = now_us; return; }
+  float dt = (now_us - last_ekf_us) * 1e-6f;
+  last_ekf_us = now_us;
+  if (dt <= 0.0f || dt > 0.1f) return;
+
+  float& roll_est  = enhanced_fusion.state_estimate[0];
+  float& pitch_est = enhanced_fusion.state_estimate[1];
+  float& P_roll    = enhanced_fusion.covariance_matrix[0][0];
+  float& P_pitch   = enhanced_fusion.covariance_matrix[1][1];
+  float Q_roll     = enhanced_fusion.process_noise[0];
+  float Q_pitch    = enhanced_fusion.process_noise[1];
+  float R_accel    = enhanced_fusion.measurement_noise[0];
+
+  // Predict: integrate gyro rates
+  roll_est  += sensor_data.imu.gyro_x * dt;
+  pitch_est += sensor_data.imu.gyro_y * dt;
+  P_roll  += Q_roll  * dt;
+  P_pitch += Q_pitch * dt;
+
+  // Update: accelerometer-derived angles
+  float accel_roll  = atan2f(sensor_data.imu.accel_y, sensor_data.imu.accel_z);
+  float accel_pitch = atan2f(-sensor_data.imu.accel_x,
+      sqrtf(sensor_data.imu.accel_y * sensor_data.imu.accel_y +
+            sensor_data.imu.accel_z * sensor_data.imu.accel_z));
+
+  float K_roll  = P_roll  / (P_roll  + R_accel);
+  float K_pitch = P_pitch / (P_pitch + R_accel);
+
+  roll_est  += K_roll  * (accel_roll  - roll_est);
+  pitch_est += K_pitch * (accel_pitch - pitch_est);
+  P_roll  *= (1.0f - K_roll);
+  P_pitch *= (1.0f - K_pitch);
 }
 
 inline void validate_sensor_cross_correlation() {

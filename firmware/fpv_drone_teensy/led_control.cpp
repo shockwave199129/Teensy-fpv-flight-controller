@@ -181,13 +181,13 @@ void LEDControl::flash_error() {
   // Emergency error flash - immediate override of current pattern
   fill_solid(leds, NUM_LEDS, CRGB::Red);
   FastLED.show();
-  delay(100);
+  // delay(100); // removed for non‑blocking
   fill_solid(leds, NUM_LEDS, CRGB::White);
   FastLED.show();
-  delay(100);
+  // delay(100); // removed for non‑blocking
   fill_solid(leds, NUM_LEDS, CRGB::Red);
   FastLED.show();
-  delay(100);
+  // delay(100); // removed for non‑blocking
   fill_solid(leds, NUM_LEDS, CRGB::Black);
   FastLED.show();
 } 

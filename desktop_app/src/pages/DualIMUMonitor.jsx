@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const DualIMUMonitor = () => {
+const DualIMUMonitor = ({ sendCommand, connected }) => {
   const [imuStatus, setImuStatus] = useState({
     primaryHealthy: false,
     secondaryHealthy: false,
@@ -44,7 +44,7 @@ const DualIMUMonitor = () => {
   useEffect(() => {
     // Request IMU status every 500ms
     const interval = setInterval(() => {
-      window.electronAPI.sendSerial('dual_imu status');
+      sendCommand('dual_imu status');
     }, 500);
 
     // Listen for IMU data updates
@@ -84,11 +84,11 @@ const DualIMUMonitor = () => {
   };
 
   const handleForceIMU = (imu) => {
-    window.electronAPI.sendSerial(`dual_imu force_${imu}`);
+    sendCommand(`dual_imu force_${imu}`);
   };
 
   const handleAutoFailover = () => {
-    window.electronAPI.sendSerial('dual_imu auto');
+    sendCommand('dual_imu auto');
   };
 
   const IMUStatusCard = ({ title, data, isActive, isHealthy }) => (
@@ -277,7 +277,7 @@ const DualIMUMonitor = () => {
           Enable Auto Failover
         </button>
         <button
-          onClick={() => window.electronAPI.sendSerial('dual_imu status')}
+          onClick={() => sendCommand('dual_imu status')}
           className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
         >
           Refresh Status

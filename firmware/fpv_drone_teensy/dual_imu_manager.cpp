@@ -1,6 +1,7 @@
 #include "dual_imu_manager.h"
 #include "sensors.h"
 #include "icm20948.h"
+#include "constants.h"
 
 extern bool read_imu_data_mpu(IMUData* data);
 
@@ -98,7 +99,7 @@ void DualIMUManager::update() {
 void DualIMUManager::validate_imu_data(const IMUData& primary, const IMUData& secondary) {
   unsigned long current_time = millis();
   
-  if (current_time - last_validation_time < 100) { // Validate at 10Hz
+  if (current_time - last_validation_time < IMU_VALIDATION_INTERVAL_MS) { // Validate at 10Hz
     return;
   }
   
@@ -115,8 +116,8 @@ void DualIMUManager::validate_imu_data(const IMUData& primary, const IMUData& se
                         pow(primary.gyro_z - secondary.gyro_z, 2));
   
   // Validation thresholds
-  const float ACCEL_DIFF_THRESHOLD = 2.0f; // m/s²
-  const float GYRO_DIFF_THRESHOLD = 10.0f; // deg/s
+  const float ACCEL_DIFF_THRESHOLD = MOTION_DETECTION_ACCEL_THRESHOLD; // m/s²
+  const float GYRO_DIFF_THRESHOLD = MOTION_DETECTION_GYRO_THRESHOLD; // deg/s
   
   bool validation_passed = (accel_diff < ACCEL_DIFF_THRESHOLD) && 
                           (gyro_diff < GYRO_DIFF_THRESHOLD);
@@ -140,7 +141,8 @@ void DualIMUManager::validate_imu_data(const IMUData& primary, const IMUData& se
       Serial.print("Selected IMU: ");
       Serial.println(using_primary_imu ? "Primary" : "Secondary");
       
-      cross_check_failures = 0; // Reset counter
+      cross_check_failures = 0; // Reset counter      // Disable further cross‑validation after fail‑over
+      validation_enabled = false;
     }
   } else {
     cross_check_failures = 0; // Reset on successful validation
@@ -148,15 +150,43 @@ void DualIMUManager::validate_imu_data(const IMUData& primary, const IMUData& se
 }
 
 bool DualIMUManager::read_imu_data_secondary(IMUData* data) {
-  // Attempt I2C secondary MPU first
-  bool success = false;
+  // Attempt I2C secondary MPU at address 0x69 first.
+  // Duplicate MPU read logic with the alternate address because the primary helper
+  // is hard‑coded to 0x68.
+  // Fallback to ICM‑20948 if present.
+  // Returns false if neither source responds.
+  // Try secondary MPU (0x69)
   Wire.beginTransmission(0x69);
   if (Wire.endTransmission() == 0) {
-    success = read_imu_data_mpu(data); // reuse primary helper with alt addr? simplification
-  } else if (icm20948_read(data)) {
-    success = true;
+    // Read 14 bytes starting at accel X high (0x3B) from secondary address
+    Wire.beginTransmission(0x69);
+    Wire.write(0x3B);
+    if (Wire.endTransmission(false) != 0) return false;
+    Wire.requestFrom(0x69, 14);
+    if (Wire.available() < 14) return false;
+    int16_t ax = (Wire.read() << 8) | Wire.read();
+    int16_t ay = (Wire.read() << 8) | Wire.read();
+    int16_t az = (Wire.read() << 8) | Wire.read();
+    int16_t tempRaw = (Wire.read() << 8) | Wire.read();
+    int16_t gx = (Wire.read() << 8) | Wire.read();
+    int16_t gy = (Wire.read() << 8) | Wire.read();
+    int16_t gz = (Wire.read() << 8) | Wire.read();
+    data->accel_x = ax / 16384.0f * 9.81f;
+    data->accel_y = ay / 16384.0f * 9.81f;
+    data->accel_z = az / 16384.0f * 9.81f;
+    data->gyro_x = gx / 131.0f;
+    data->gyro_y = gy / 131.0f;
+    data->gyro_z = gz / 131.0f;
+    data->temp = tempRaw / 340.0f + 36.53f;
+    data->healthy = true;
+    data->last_update = millis();
+    return true;
   }
-  return success;
+  // Fallback to ICM‑20948 if present
+  if (icm20948_read(data)) {
+    return true;
+  }
+  return false;
 }
 
 IMUData DualIMUManager::get_fused_data() {

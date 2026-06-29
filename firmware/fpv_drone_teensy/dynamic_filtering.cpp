@@ -165,18 +165,55 @@ void DynamicFilteringSystem::update_filter_frequencies() {
 }
 
 void DynamicFilteringSystem::apply_dynamic_filtering(SensorData& sensors) {
-  // Apply notch filters to gyro data
-  for (int filter = 0; filter < 4; filter++) {
-    if (adaptive_notch[filter].enabled) {
-      sensors.imu.gyro_x = apply_notch_filter(&adaptive_notch[filter], sensors.imu.gyro_x);
-    }
+  // Stage 1: PT1 low-pass filter on gyro (configurable cutoff, default 200 Hz)
+  static float gyro_lpf[3] = {0, 0, 0};
+  static bool lpf_initialized = false;
+  const float lpf_cutoff_hz = 200.0f;
+  const float sample_rate = 2000.0f;
+  float rc = 1.0f / (2.0f * 3.14159265f * lpf_cutoff_hz);
+  float dt_lpf = 1.0f / sample_rate;
+  float alpha_lpf = dt_lpf / (dt_lpf + rc);
+  
+  if (!lpf_initialized) {
+    gyro_lpf[0] = sensors.imu.gyro_x;
+    gyro_lpf[1] = sensors.imu.gyro_y;
+    gyro_lpf[2] = sensors.imu.gyro_z;
+    lpf_initialized = true;
   }
   
-  // Apply different filters to pitch and yaw (would implement separate filter banks)
-  for (int filter = 0; filter < 4; filter++) {
-    if (adaptive_notch[filter].enabled) {
-      sensors.imu.gyro_y = apply_notch_filter(&adaptive_notch[filter], sensors.imu.gyro_y);
-      sensors.imu.gyro_z = apply_notch_filter(&adaptive_notch[filter], sensors.imu.gyro_z);
+  gyro_lpf[0] += alpha_lpf * (sensors.imu.gyro_x - gyro_lpf[0]);
+  gyro_lpf[1] += alpha_lpf * (sensors.imu.gyro_y - gyro_lpf[1]);
+  gyro_lpf[2] += alpha_lpf * (sensors.imu.gyro_z - gyro_lpf[2]);
+  sensors.imu.gyro_x = gyro_lpf[0];
+  sensors.imu.gyro_y = gyro_lpf[1];
+  sensors.imu.gyro_z = gyro_lpf[2];
+
+  // Stage 2: Per-axis dynamic notch filters
+  static NotchFilter pitch_notch[4];
+  static NotchFilter yaw_notch[4];
+  static bool axes_initialized = false;
+
+  if (!axes_initialized) {
+    for (int i = 0; i < 4; i++) {
+      pitch_notch[i] = adaptive_notch[i];
+      yaw_notch[i]   = adaptive_notch[i];
+      calculate_notch_coefficients(&pitch_notch[i], sample_rate);
+      calculate_notch_coefficients(&yaw_notch[i], sample_rate);
+    }
+    axes_initialized = true;
+  }
+
+  for (int i = 0; i < 4; i++) {
+    if (adaptive_notch[i].enabled) {
+      sensors.imu.gyro_x = apply_notch_filter(&adaptive_notch[i], sensors.imu.gyro_x);
+    }
+    if (pitch_notch[i].enabled) {
+      pitch_notch[i].center_freq_hz = adaptive_notch[i].center_freq_hz;
+      sensors.imu.gyro_y = apply_notch_filter(&pitch_notch[i], sensors.imu.gyro_y);
+    }
+    if (yaw_notch[i].enabled) {
+      yaw_notch[i].center_freq_hz = adaptive_notch[i].center_freq_hz;
+      sensors.imu.gyro_z = apply_notch_filter(&yaw_notch[i], sensors.imu.gyro_z);
     }
   }
 }

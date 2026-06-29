@@ -106,15 +106,16 @@ function MotorConfig({ config, setConfig, telemetry, sendCommand, connected }) {
       return;
     }
 
-    const result = await sendCommand(`SET ESC PROTOCOL ${protocol}`);
-    if (result.success) {
+    try {
+      await sendCommand(`SET ESC PROTOCOL ${protocol}`);
       setLocalConfig(prev => ({ ...prev, protocol }));
       setConfig(prev => ({
         ...prev,
         motors: { ...prev.motors, protocol }
       }));
-    } else {
+    } catch (err) {
       alert('Failed to set ESC protocol');
+      return;
     }
   };
 
@@ -125,9 +126,8 @@ function MotorConfig({ config, setConfig, telemetry, sendCommand, connected }) {
     }
 
     const newDirection = localConfig.direction[motorIndex] === 1 ? -1 : 1;
-    const result = await sendCommand(`SET ESC DIRECTION ${motorIndex + 1} ${newDirection === 1 ? 'NORMAL' : 'REVERSE'}`);
-    
-    if (result.success) {
+    try {
+      await sendCommand(`SET ESC DIRECTION ${motorIndex + 1} ${newDirection === 1 ? 'NORMAL' : 'REVERSE'}`);
       const newDirections = [...localConfig.direction];
       newDirections[motorIndex] = newDirection;
       setLocalConfig(prev => ({ ...prev, direction: newDirections }));
@@ -135,6 +135,9 @@ function MotorConfig({ config, setConfig, telemetry, sendCommand, connected }) {
         ...prev,
         motors: { ...prev.motors, direction: newDirections }
       }));
+    } catch (err) {
+      alert('Failed to set motor direction');
+      return;
     }
   };
 
@@ -145,10 +148,12 @@ function MotorConfig({ config, setConfig, telemetry, sendCommand, connected }) {
     }
 
     const newState = !localConfig.telemetryEnabled;
-    const result = await sendCommand(`SET ESC TELEMETRY ${newState ? 'ON' : 'OFF'}`);
-    
-    if (result.success) {
+    try {
+      await sendCommand(`SET ESC TELEMETRY ${newState ? 'ON' : 'OFF'}`);
       setLocalConfig(prev => ({ ...prev, telemetryEnabled: newState }));
+    } catch (err) {
+      alert('Failed to set ESC telemetry');
+      return;
     }
   };
 
@@ -159,10 +164,12 @@ function MotorConfig({ config, setConfig, telemetry, sendCommand, connected }) {
     }
 
     const newState = !localConfig.bidirectionalEnabled;
-    const result = await sendCommand(`SET ESC BIDIRECTIONAL ${newState ? 'ON' : 'OFF'}`);
-    
-    if (result.success) {
+    try {
+      await sendCommand(`SET ESC BIDIRECTIONAL ${newState ? 'ON' : 'OFF'}`);
       setLocalConfig(prev => ({ ...prev, bidirectionalEnabled: newState }));
+    } catch (err) {
+      alert('Failed to set ESC bidirectional mode');
+      return;
     }
   };
 
