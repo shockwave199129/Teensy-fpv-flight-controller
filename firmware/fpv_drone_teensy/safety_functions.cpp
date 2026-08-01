@@ -7,6 +7,7 @@
 #include "calibration_storage.h"
 #include "beep_pattern.h"
 #include "log.h"
+#include "safety_functions.h"
 
 // Pin definitions for beeper
 #define BEEPER_PIN 8
@@ -14,8 +15,8 @@
 // All required functions are now implemented
 BatteryStatus get_enhanced_battery_status() {
   BatteryStatus status;
-  status.connected = true;
-  
+  status.connected = detect_battery_connection();
+
   // Read battery voltage from ADC
   int raw_voltage = analogRead(BATTERY_VOLTAGE_PIN);
   status.voltage = raw_voltage * VOLTAGE_SCALE;

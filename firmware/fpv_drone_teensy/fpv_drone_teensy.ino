@@ -29,13 +29,35 @@
 #include "communication.h"
 #include "dual_imu_manager.h"
 #include "beep_pattern.h"
-#ifdef __IMXRT1062__
-#include <avr/wdt.h>
+#ifndef __IMXRT1062__
+#include <avr/wdt.h>  // AVR watchdog API - only valid on genuine AVR targets
 #endif
 #include "dynamic_filtering.h"
 #include "optical_flow.h"
 #include "advanced_flight_modes.h"
 #include "safety_functions.h"
+#include "calibration_storage.h"
+
+#ifdef __IMXRT1062__  // Teensy 4.x - native WDOG1 watchdog (i.MX RT1062 has no AVR wdt.h)
+// WDOG1_WCR/WDOG1_WMCR/WDOG1_WSR and the WDOG_WCR_* bit macros come from imxrt.h.
+static inline void teensy4_watchdog_enable(float timeout_seconds) {
+  // Make sure the WDOG1 peripheral clock is on.
+  CCM_CCGR3 |= CCM_CCGR3_WDOG1(CCM_CCGR_ON);
+
+  // WT is an 8-bit field in 0.5s units: timeout = (WT + 1) * 0.5s, max ~128s.
+  uint16_t wt = (uint16_t)constrain((timeout_seconds / 0.5f) - 1.0f, 0.0f, 255.0f);
+
+  // WDE = enable watchdog. SRS/WDA must stay set (1) during normal operation -
+  // clearing either one immediately forces a reset / asserts the external WDOG_B pin.
+  WDOG1_WCR = WDOG_WCR_WDE | WDOG_WCR_SRS | WDOG_WCR_WDA | WDOG_WCR_WT(wt);
+}
+
+static inline void teensy4_watchdog_reset() {
+  // Service sequence: 0x5555 then 0xAAAA must both land inside the timeout window.
+  WDOG1_WSR = 0x5555;
+  WDOG1_WSR = 0xAAAA;
+}
+#endif
 
 // Global variables
 FlightState flight_state;
@@ -97,7 +119,11 @@ void setup() {
   // Initialize components
   init_pins();
   init_sensors();
-  
+
+  // Load persisted IMU/accel/mag/ESC calibration (owned exclusively by
+  // CalibrationStorage - see calibration_storage.cpp).
+  load_calibration_data();
+
   // Initialize enhanced filtering
   init_mahony_filter();
   init_vibration_filters();
@@ -114,8 +140,14 @@ void setup() {
   init_default_rate_profiles();
   init_motors();
   init_leds();
-  init_communication();  // Enable hardware watchdog (2 s timeout)
+  init_communication();
+
+  // Enable hardware watchdog (2 s timeout)
+  #ifdef __IMXRT1062__
+  teensy4_watchdog_enable(2.0f);
+  #else
   wdt_enable(WDTO_2S);
+  #endif
   
   // Initialize sensor detection system
   sensor_detection.detection_complete = false;
@@ -182,8 +214,14 @@ void loop() {
   BeepPattern::update();
   
   // Monitor system health
-  monitor_system_health();  // Reset watchdog to prevent system reset
+  monitor_system_health();
+
+  // Reset watchdog to prevent system reset
+  #ifdef __IMXRT1062__
+  teensy4_watchdog_reset();
+  #else
   wdt_reset();
+  #endif
   
   // Small delay to prevent overwhelming the main thread
   delay(10);
@@ -356,9 +394,15 @@ void init_sensors() {
   // Initialize sonar
   init_sonar();
   Serial.println("Sonar initialized");
+}
 
-  EEPROM.put(0, rc_config);
-  EEPROM.put(sizeof(rc_config), rate_profiles);
+void load_calibration_data() {
+  if (CalibrationStorage::load(calibration_data)) {
+    Serial.println("Calibration data loaded from EEPROM");
+  } else {
+    Serial.println("No valid calibration data found - recalibration required");
+    memset(&calibration_data, 0, sizeof(CalibrationData));
+  }
 }
 
 void init_receivers() {
@@ -612,77 +656,64 @@ void monitor_system_health() {
 }
 
 void load_config() {
-  // Load configuration from EEPROM
+  // Load configuration from EEPROM. Calibration data is NOT stored here - it
+  // lives in its own reserved region, owned exclusively by CalibrationStorage
+  // (see calibration_storage.cpp and load_calibration_data() in setup()).
   Serial.println("Loading configuration from EEPROM...");
-  
-  #include <EEPROM.h>
-  
-  // Check for valid configuration signature
+
+  int address = CONFIG_EEPROM_BASE;
+
+  // Check for valid configuration signature and version
   uint32_t signature;
-  EEPROM.get(0, signature);
-  
-  if (signature != 0x12345678) {
+  EEPROM.get(address, signature);
+  address += sizeof(signature);
+
+  uint16_t version;
+  EEPROM.get(address, version);
+  address += sizeof(version);
+
+  if (signature != 0x12345678 || version != CONFIG_STORAGE_VERSION) {
     Serial.println("No valid configuration found - using defaults");
     save_config(); // Save default config
     return;
   }
-  
-  int address = 4; // Start after signature
-  
+
   // Load PID gains
   extern PIDController pid_controller;
   CascadedPIDGains gains;
   EEPROM.get(address, gains);
   address += sizeof(CascadedPIDGains);
-  
+
   // Apply loaded PID gains
   pid_controller.set_rate_pid_gains(0, gains.rate_roll.kp, gains.rate_roll.ki, gains.rate_roll.kd);
   pid_controller.set_rate_pid_gains(1, gains.rate_pitch.kp, gains.rate_pitch.ki, gains.rate_pitch.kd);
   pid_controller.set_rate_pid_gains(2, gains.rate_yaw.kp, gains.rate_yaw.ki, gains.rate_yaw.kd);
   pid_controller.set_angle_pid_gains(0, gains.angle_roll.kp, gains.angle_roll.ki, gains.angle_roll.kd);
   pid_controller.set_angle_pid_gains(1, gains.angle_pitch.kp, gains.angle_pitch.ki, gains.angle_pitch.kd);
-  
+
   // Load ESC configuration
   extern MotorControl motor_control;
   EscConfig esc_config;
   EEPROM.get(address, esc_config);
   address += sizeof(EscConfig);
   motor_control.configure_esc(esc_config);
-  
+
   // Load RC configuration
   extern RcConfig rc_config;
   EEPROM.get(address, rc_config);
   address += sizeof(RcConfig);
-  
-  // Load calibration data
-  bool gyro_calibrated, accel_calibrated, mag_calibrated;
-  EEPROM.get(address, gyro_calibrated);
-  address += sizeof(bool);
-  EEPROM.get(address, accel_calibrated);
-  address += sizeof(bool);
-  EEPROM.get(address, mag_calibrated);
-  address += sizeof(bool);
-  
-  // Load sensor offsets
-  float gyro_offsets[3], accel_offsets[3], mag_offsets[3];
-  EEPROM.get(address, gyro_offsets);
-  address += sizeof(gyro_offsets);
-  EEPROM.get(address, accel_offsets);
-  address += sizeof(accel_offsets);
-  EEPROM.get(address, mag_offsets);
-  address += sizeof(mag_offsets);
-  
+
   // Load enhanced sensor fusion config
   extern EnhancedSensorFusion enhanced_fusion;
   EEPROM.get(address, enhanced_fusion);
   address += sizeof(EnhancedSensorFusion);
-  
+
   // Load sensor redundancy config
   // extern SensorRedundancySystem sensor_redundancy; // unused
   SensorRedundancyConfig redundancy_config;
   EEPROM.get(address, redundancy_config);
   address += sizeof(SensorRedundancyConfig);
-  
+
   Serial.println("Configuration loaded successfully:");
   Serial.print("  - PID gains loaded (Rate Roll KP: ");
   Serial.print(gains.rate_roll.kp, 3);
@@ -691,14 +722,8 @@ void load_config() {
   Serial.println(esc_config.protocol);
   Serial.print("  - RC channels: ");
   Serial.println(rc_config.channel_count);
-  Serial.print("  - Calibration status - Gyro: ");
-  Serial.print(gyro_calibrated ? "✓" : "✗");
-  Serial.print(", Accel: ");
-  Serial.print(accel_calibrated ? "✓" : "✗");
-  Serial.print(", Mag: ");
-  Serial.println(mag_calibrated ? "✓" : "✗");
   Serial.print("Total config size: ");
-  Serial.print(address);
+  Serial.print(address - CONFIG_EEPROM_BASE);
   Serial.println(" bytes");
 }
 
@@ -801,83 +826,61 @@ void apply_magnetometer_calibration(MagnetometerData* data) {
 }
 
 void save_config() {
-  // Save configuration to EEPROM
+  // Save configuration to EEPROM. Calibration data is NOT stored here - it
+  // lives in its own reserved region, owned exclusively by CalibrationStorage
+  // (see calibration_storage.cpp).
   Serial.println("Saving configuration to EEPROM...");
-  
-  #include <EEPROM.h>
-  
-  int address = 0;
-  
-  // Write configuration signature
+
+  int address = CONFIG_EEPROM_BASE;
+
+  // Write configuration signature and version
   uint32_t signature = 0x12345678;
   EEPROM.put(address, signature);
-  address += sizeof(uint32_t);
-  
+  address += sizeof(signature);
+
+  uint16_t version = CONFIG_STORAGE_VERSION;
+  EEPROM.put(address, version);
+  address += sizeof(version);
+
   // Save PID gains
   extern PIDController pid_controller;
   CascadedPIDGains gains = pid_controller.get_cascaded_gains();
   EEPROM.put(address, gains);
   address += sizeof(CascadedPIDGains);
-  
+
   // Save ESC configuration
   extern MotorControl motor_control;
   EscConfig esc_config = motor_control.get_esc_config();
   EEPROM.put(address, esc_config);
   address += sizeof(EscConfig);
-  
+
   // Save RC configuration
   extern RcConfig rc_config;
   EEPROM.put(address, rc_config);
   address += sizeof(RcConfig);
-  
-  // Save calibration status
-  bool gyro_calibrated = is_gyro_calibrated();
-  bool accel_calibrated = is_accelerometer_calibrated();
-  bool mag_calibrated = is_magnetometer_calibrated();
-  
-  EEPROM.put(address, gyro_calibrated);
-  address += sizeof(bool);
-  EEPROM.put(address, accel_calibrated);
-  address += sizeof(bool);
-  EEPROM.put(address, mag_calibrated);
-  address += sizeof(bool);
-  
-  // Save sensor calibration offsets
-  extern CalibrationData calibration_data;
-  float gyro_offsets[3]  = {calibration_data.gyro_offsets[0], calibration_data.gyro_offsets[1], calibration_data.gyro_offsets[2]};
-  float accel_offsets[3] = {calibration_data.accel_offsets[0], calibration_data.accel_offsets[1], calibration_data.accel_offsets[2]};
-  float mag_offsets[3]   = {calibration_data.mag_offsets[0], calibration_data.mag_offsets[1], calibration_data.mag_offsets[2]};
-  
-  EEPROM.put(address, gyro_offsets);
-  address += sizeof(gyro_offsets);
-  EEPROM.put(address, accel_offsets);
-  address += sizeof(accel_offsets);
-  EEPROM.put(address, mag_offsets);
-  address += sizeof(mag_offsets);
-  
+
   // Save enhanced sensor fusion config
   extern EnhancedSensorFusion enhanced_fusion;
   EEPROM.put(address, enhanced_fusion);
   address += sizeof(EnhancedSensorFusion);
-  
+
   // Save sensor redundancy config
   // extern SensorRedundancySystem sensor_redundancy; // unused
   SensorRedundancyConfig redundancy_config;
   redundancy_config = sensor_redundancy.get_config();
   EEPROM.put(address, redundancy_config);
   address += sizeof(SensorRedundancyConfig);
-  
+
   // Arduino EEPROM automatically commits changes (no explicit commit needed)
-  
+
   Serial.println("Configuration saved successfully:");
   Serial.print("  - Total size: ");
-  Serial.print(address);
+  Serial.print(address - CONFIG_EEPROM_BASE);
   Serial.println(" bytes");
   Serial.print("  - PID gains saved (Rate Roll KP: ");
   Serial.print(gains.rate_roll.kp, 3);
   Serial.println(")");
   Serial.print("  - ESC protocol: ");
   Serial.println(esc_config.protocol);
-  Serial.print("  - Calibration status saved");
   Serial.println();
 }

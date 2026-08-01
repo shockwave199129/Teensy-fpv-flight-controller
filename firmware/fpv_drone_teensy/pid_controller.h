@@ -151,6 +151,7 @@ public:
   
   inline void set_rate_pid_gains(int axis, float kp, float ki, float kd);
   inline void set_angle_pid_gains(int axis, float kp, float ki, float kd);
+  inline void set_rate_pid_term(int axis, char term, float value);
   void set_advanced_pid_features(int axis, bool derivative_on_measurement, bool proportional_on_measurement);
   inline void reset_pid_integrals();
   
@@ -490,18 +491,25 @@ inline PIDOutput PIDController::get_outputs() {
 
 inline void PIDController::set_rate_pid_gains(int axis, float kp, float ki, float kd) {
   EnhancedPIDGains* gains = nullptr;
-  
+  EnhancedPIDGains* base = nullptr;
+
   switch (axis) {
-    case 0: gains = &cascaded_gains.rate_roll; break;
-    case 1: gains = &cascaded_gains.rate_pitch; break;
-    case 2: gains = &cascaded_gains.rate_yaw; break;
+    case 0: gains = &cascaded_gains.rate_roll;  base = &base_gains.rate_roll;  break;
+    case 1: gains = &cascaded_gains.rate_pitch; base = &base_gains.rate_pitch; break;
+    case 2: gains = &cascaded_gains.rate_yaw;   base = &base_gains.rate_yaw;   break;
     default: return;
   }
-  
+
   gains->kp = kp;
   gains->ki = ki;
   gains->kd = kd;
-  
+
+  // Update base_gains too, otherwise the next adaptive-gain recompute
+  // (which scales from base_gains, not cascaded_gains) silently reverts this.
+  base->kp = kp;
+  base->ki = ki;
+  base->kd = kd;
+
   Serial.print("Rate PID gains updated for axis ");
   Serial.print(axis);
   Serial.print(": KP=");
@@ -514,17 +522,22 @@ inline void PIDController::set_rate_pid_gains(int axis, float kp, float ki, floa
 
 inline void PIDController::set_angle_pid_gains(int axis, float kp, float ki, float kd) {
   EnhancedPIDGains* gains = nullptr;
-  
+  EnhancedPIDGains* base = nullptr;
+
   switch (axis) {
-    case 0: gains = &cascaded_gains.angle_roll; break;
-    case 1: gains = &cascaded_gains.angle_pitch; break;
+    case 0: gains = &cascaded_gains.angle_roll;  base = &base_gains.angle_roll;  break;
+    case 1: gains = &cascaded_gains.angle_pitch; base = &base_gains.angle_pitch; break;
     default: return;
   }
-  
+
   gains->kp = kp;
   gains->ki = ki;
   gains->kd = kd;
-  
+
+  base->kp = kp;
+  base->ki = ki;
+  base->kd = kd;
+
   Serial.print("Angle PID gains updated for axis ");
   Serial.print(axis);
   Serial.print(": KP=");
@@ -533,6 +546,36 @@ inline void PIDController::set_angle_pid_gains(int axis, float kp, float ki, flo
   Serial.print(ki, 3);
   Serial.print(", KD=");
   Serial.println(kd, 3);
+}
+
+inline void PIDController::set_rate_pid_term(int axis, char term, float value) {
+  EnhancedPIDGains* gains = nullptr;
+  EnhancedPIDGains* base = nullptr;
+
+  switch (axis) {
+    case 0: gains = &cascaded_gains.rate_roll;  base = &base_gains.rate_roll;  break;
+    case 1: gains = &cascaded_gains.rate_pitch; base = &base_gains.rate_pitch; break;
+    case 2: gains = &cascaded_gains.rate_yaw;   base = &base_gains.rate_yaw;   break;
+    default:
+      Serial.println("set_rate_pid_term: invalid axis");
+      return;
+  }
+
+  switch (term) {
+    case 'P': gains->kp = base->kp = value; break;
+    case 'I': gains->ki = base->ki = value; break;
+    case 'D': gains->kd = base->kd = value; break;
+    default:
+      Serial.println("set_rate_pid_term: invalid term (use P, I, or D)");
+      return;
+  }
+
+  Serial.print("Rate PID ");
+  Serial.print(term);
+  Serial.print(" gain updated for axis ");
+  Serial.print(axis);
+  Serial.print(": ");
+  Serial.println(value, 4);
 }
 
 inline void PIDController::reset_pid_integrals() {

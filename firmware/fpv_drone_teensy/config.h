@@ -42,6 +42,17 @@ struct SensorStatus {
 #define BATTERY_VOLTAGE_PIN A0
 #define CURRENT_SENSOR_PIN A1
 
+// EEPROM memory map — each persistence subsystem owns a fixed, non-overlapping
+// region so CalibrationStorage (calibration_storage.cpp) and save_config()/
+// load_config() (fpv_drone_teensy.ino) never write over each other.
+#define CALIBRATION_EEPROM_BASE 0
+#define CONFIG_EEPROM_BASE      256
+
+// Bump these whenever the corresponding stored struct's layout changes, so a
+// stale/foreign blob is detected and rejected instead of misread.
+#define CALIBRATION_STORAGE_VERSION 1
+#define CONFIG_STORAGE_VERSION      1
+
 // I2C Pins (Teensy 4.1 default)
 #define SDA_PIN 18
 #define SCL_PIN 19

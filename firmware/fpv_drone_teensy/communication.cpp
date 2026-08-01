@@ -281,13 +281,19 @@ void Communication::process_command(String command) {
       if (second > 0) {
         String termStr = command.substring(first + 1, second);
         float val = command.substring(second + 1).toFloat();
-        int axis = 0; // roll default
+        int axis;
         if (axisStr == "ROLL") axis = 0;
         else if (axisStr == "PITCH") axis = 1;
         else if (axisStr == "YAW") axis = 2;
-        if (termStr == "P") pid_controller.set_rate_pid_gains(axis, val, pid_controller.get_cascaded_gains().rate_roll.ki, pid_controller.get_cascaded_gains().rate_roll.kd);
-        else if (termStr == "I") pid_controller.set_rate_pid_gains(axis, pid_controller.get_cascaded_gains().rate_roll.kp, val, pid_controller.get_cascaded_gains().rate_roll.kd);
-        else if (termStr == "D") pid_controller.set_rate_pid_gains(axis, pid_controller.get_cascaded_gains().rate_roll.kp, pid_controller.get_cascaded_gains().rate_roll.ki, val);
+        else {
+          Serial.println("Unknown axis - use ROLL, PITCH, or YAW");
+          return;
+        }
+        if (termStr != "P" && termStr != "I" && termStr != "D") {
+          Serial.println("Unknown term - use P, I, or D");
+          return;
+        }
+        pid_controller.set_rate_pid_term(axis, termStr[0], val);
         Serial.println("PID term updated");
       }
     }

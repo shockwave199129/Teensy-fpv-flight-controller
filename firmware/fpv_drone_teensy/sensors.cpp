@@ -455,19 +455,6 @@ void mahony_ahrs_update_imu(float gx, float gy, float gz, float ax, float ay, fl
   q0*=recipNorm; q1*=recipNorm; q2*=recipNorm; q3*=recipNorm;
 }
 
-#if 0
-void load_config() {
-  extern CalibrationData calibration_data;
-  if (CalibrationStorage::load(calibration_data)) {
-    Serial.println("Calibration data loaded ✔");
-  } else {
-    Serial.println("No valid calibration data found, using defaults");
-    memset(&calibration_data, 0, sizeof(CalibrationData));
-    calibration_data.system_calibrated = false;
-  }
-}
-#endif
-
 // -------------------------------------------------
 // Generic I2C presence helper
 static bool i2c_device_present(uint8_t addr) {
