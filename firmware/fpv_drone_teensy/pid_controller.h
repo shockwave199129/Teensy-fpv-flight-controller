@@ -2,9 +2,7 @@
 #define PID_CONTROLLER_H
 
 #include "config.h"
-
-// Forward declarations
-class MotorControl;
+#include "motor_control.h"
 
 // Enhanced PID gains structure (moved before CascadedPIDGains)
 struct EnhancedPIDGains {
@@ -161,6 +159,11 @@ public:
   
   // Configuration getters
   CascadedPIDGains get_cascaded_gains() { return cascaded_gains; }
+  // Base (un-scaled) gains that adaptive tuning multiplies from. Exposed so
+  // callers/tests can confirm a SET PID change actually took hold, rather
+  // than reading a cascaded_gains value that adaptive tuning rescales every
+  // update() cycle.
+  CascadedPIDGains get_base_gains() { return base_gains; }
   AdvancedPIDFeatures& get_advanced_features() { return advanced_features; }
   PerformanceMetrics get_performance_metrics() { return performance_metrics; }
 };

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Arduino.h>
+
 /**
  * @brief Helper for non‑blocking beep patterns on the Teensy.
  *

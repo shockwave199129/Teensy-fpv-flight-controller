@@ -7,6 +7,12 @@ namespace {
     constexpr float EARTH_RADIUS_M = 6371000.0f;
 }
 
+// Declared at file scope (not inside NavigationHelpers) so these refer to the
+// real globals - an `extern` declared inside a namespace instead declares a
+// distinct, never-defined NavigationHelpers::sensor_data symbol.
+extern SensorData sensor_data;
+extern RcData rc_data_global;
+
 namespace NavigationHelpers {
 
 float distance_between(float lat1, float lon1, float lat2, float lon2) {
@@ -26,9 +32,6 @@ float bearing_to(float lat1, float lon1, float lat2, float lon2) {
 }
 
 void set_nav_heading(float bearing_deg) {
-    extern SensorData sensor_data;
-    extern RcData rc_data_global;
-
     float yaw_error = bearing_deg - sensor_data.yaw;
     while (yaw_error > 180.0f) yaw_error -= 360.0f;
     while (yaw_error < -180.0f) yaw_error += 360.0f;

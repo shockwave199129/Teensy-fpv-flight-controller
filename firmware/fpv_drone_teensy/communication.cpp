@@ -11,6 +11,8 @@
 #include "optical_flow.h"
 #include "advanced_flight_modes.h"
 #include "pid_controller.h"
+#include "blackbox_logger.h"
+#include <SD.h>
 #include <math.h>
 
 // Global PID controller instance comes from main sketch

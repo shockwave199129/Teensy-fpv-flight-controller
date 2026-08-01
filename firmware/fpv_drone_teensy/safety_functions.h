@@ -15,6 +15,7 @@
 bool enhanced_safety_check_for_arming_with_feedback();
 void check_automatic_battery_failsafe();
 void handle_rc_signal_loss();
+void emergency_altitude_descent();
 
 // Calibration function declarations
 bool perform_gyro_calibration();

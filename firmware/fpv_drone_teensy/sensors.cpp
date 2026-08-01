@@ -105,6 +105,48 @@ bool read_imu_data(IMUData* data) {
   }
 }
 
+// -------------------------------------------------
+// STUBS: the magnetometer/barometer/GPS/sonar drivers and the multi-sensor
+// fusion pass were declared (sensors.h) and called throughout the firmware,
+// but never actually implemented anywhere in this codebase - only the IMU
+// (above) has a real driver. These stubs report "unhealthy / no data"
+// rather than fabricating readings, so downstream health checks
+// (safety_functions.cpp) correctly treat these sensors as absent instead of
+// silently appearing calibrated and valid. Replace with real drivers for
+// the actual magnetometer/barometer/GPS/sonar hardware before relying on
+// any mag/baro/GPS/sonar-dependent feature (heading, altitude hold, RTH,
+// GPS rescue, obstacle sonar).
+bool read_magnetometer_data(MagnetometerData* data) {
+  if (!data) return false;
+  data->healthy = false;
+  return false;
+}
+
+bool read_barometer_data(BarometerData* data) {
+  if (!data) return false;
+  data->healthy = false;
+  return false;
+}
+
+bool read_gps_data(GPSData* data) {
+  if (!data) return false;
+  data->healthy = false;
+  data->fix = false;
+  data->satellites = 0;
+  return false;
+}
+
+bool read_sonar_data(SonarData* data) {
+  if (!data) return false;
+  data->healthy = false;
+  return false;
+}
+
+void update_sensor_fusion() {
+  // No-op: real multi-sensor fusion (blending mag/baro/GPS into the
+  // roll/pitch/yaw/altitude estimate) was never implemented.
+}
+
 bool read_imu_data_mpu(IMUData* data) {
   // Read 14 bytes starting at accel X high (0x3B)
   Wire.beginTransmission(MPU6050_ADDR);
