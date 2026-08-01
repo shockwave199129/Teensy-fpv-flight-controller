@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "concurrently \"npm run dev-react\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev": "concurrently \"npm run dev-react\" \"wait-on http://localhost:5173 && electron .\"",
     "dev-react": "vite",
     "build": "vite build",
     "build-electron": "npm run build && electron-builder",

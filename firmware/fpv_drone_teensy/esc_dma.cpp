@@ -7,7 +7,10 @@
 #endif
 
 #ifndef DMAMUX_SOURCE_FLEXPWM3_WRITE0
-#define DMAMUX_SOURCE_FLEXPWM3_WRITE0 20  // placeholder source; update per MCU datasheet
+#error "DMAMUX_SOURCE_FLEXPWM3_WRITE0 not defined by imxrt.h for this Teensyduino core version - \
+verify the FlexPWM3 SM0 DMA trigger source against the i.MX RT1062 reference manual's DMAMUX \
+table before defining it here. A silently wrong value here misroutes the DMA-triggered PWM \
+write and corrupts DShot timing to the ESCs."
 #endif
 
 namespace {

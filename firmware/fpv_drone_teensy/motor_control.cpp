@@ -40,7 +40,6 @@ void MotorControl::init() {
 }
 
 void MotorControl::init_with_protocol(EscProtocol protocol) {
-  // This implementation is based on the partial file view and may be incomplete.
   esc_config.protocol = protocol;
   esc_config.telemetry_enabled = false;
   esc_config.bidirectional_enabled = false;
@@ -68,8 +67,12 @@ void MotorControl::init_with_protocol(EscProtocol protocol) {
     telemetry_request[i] = false;
   }
   
-  // Protocol-specific initialization
-  // NOTE: This switch statement is likely incomplete due to partial file visibility.
+  // Protocol-specific initialization. Covers every current EscProtocol
+  // enumerator (config.h); the default below is defense-in-depth against an
+  // out-of-range value (e.g. a corrupted EEPROM esc_config - see F1) rather
+  // than a case this firmware expects to hit. Note: if a new EscProtocol
+  // value is added later, this default suppresses -Wswitch's usual warning
+  // for unhandled enumerators, so it must be added here by hand too.
   switch (protocol) {
     case ESC_PROTOCOL_PWM:
       for(int m=0;m<MOTOR_COUNT;m++){
@@ -92,6 +95,16 @@ void MotorControl::init_with_protocol(EscProtocol protocol) {
           pinMode(MOTOR_PINS[m], OUTPUT);
       }
       ESC_DMA::init(protocol, MOTOR_PINS, MOTOR_COUNT);
+      break;
+    default:
+      Serial.print("ERROR: unknown EscProtocol value (");
+      Serial.print((int)protocol);
+      Serial.println(") - falling back to safe PWM output");
+      esc_config.protocol = ESC_PROTOCOL_PWM;
+      for(int m=0;m<MOTOR_COUNT;m++){
+          motors[m].attach(MOTOR_PINS[m]);
+          motors[m].writeMicroseconds(ESC_MIN_PWM);
+      }
       break;
   }
   
