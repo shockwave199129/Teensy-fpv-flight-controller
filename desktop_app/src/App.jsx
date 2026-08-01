@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
+import { validateCommand } from './utils/serialHelpers';
 import SerialConnection from './components/SerialConnection';
 import Dashboard from './pages/Dashboard';
 import SafetyStatus from './pages/SafetyStatus';
@@ -53,7 +54,8 @@ function App() {
   const sendCommand = async (command) => {
     if (isConnected) {
       try {
-        await window.electronAPI.sendCommand(command);
+        const validated = validateCommand(command);
+        await window.electronAPI.sendCommand(validated);
       } catch (error) {
         console.error('Error sending command:', error);
       }
